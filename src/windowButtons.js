@@ -281,7 +281,8 @@ class WindowTaskbarButton extends St.Button {
             this._root.add_child(this._indicator);
     }
 
-    updateStyle() {
+    /** @param {number=} widthCap - room per button, see WindowsList._shareRoom */
+    updateStyle(widthCap = null) {
         const settings = this._settings;
 
         this._icon.visible = settings.get_boolean('window-button-icons');
@@ -297,7 +298,7 @@ class WindowTaskbarButton extends St.Button {
         // bigger than its natural width ("ClutterBoxLayout child ... natural
         // width: 140 < minimum 220"), so this only ever touches max_width and
         // min_width, where min <= natural is what always holds.
-        const requested = settings.get_int('window-button-width');
+        const requested = widthCap ?? settings.get_int('window-button-width');
         this._label.min_width = MIN_LABEL_WIDTH;
         this._label.max_width = -1;
         if (requested > 0) {
@@ -457,6 +458,16 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this._settings = TaskbarManager.settings;
         this._buttons = new Map();
 
+        // Blank tail that eats whatever room the buttons do not use: the list
+        // then always asks for the full width the panel can give it, so the
+        // buttons stay where they are as windows come and go, and the panel's
+        // symmetric box sizing keeps the status area in one piece.
+        this._spacer = new St.Widget({
+            style_class: 'azTaskbar-window-list-spacer',
+            y_align: Clutter.ActorAlign.FILL,
+        });
+        this.add_child(this._spacer);
+
         // (refreshes are queued by queueRedisplay, on the fork's own timer)
 
         this.connect('destroy', () => this._destroy());
@@ -515,6 +526,86 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         Utils.queueRefresh(this, '_refreshId', () => this.redisplay());
     }
 
+    /**
+     * The panel keeps its left and right boxes the same width (aztaskbar and
+     * the shell both do it that way to keep the centre box centred), so a taskbar
+     * in the left box only ever gets half the panel: titles get squeezed as soon
+     * as there are many windows. The centre box is not capped that way, and it is
+     * exactly the space between the favourites and the status area, so the window
+     * list lives there - it may be as wide as twice the widest side box leaves over.
+     */
+    /** The panel this actor sits in (works for the shell's panel and aztaskbar's own). */
+    _panelAncestor() {
+        let node = this.get_parent();
+        while (node && !(node._leftBox && node._centerBox && node._rightBox))
+            node = node.get_parent();
+        return node;
+    }
+
+    _naturalWidth(actor) {
+        const sizes = actor?.get_preferred_width?.(-1);
+        return sizes ? Math.round(sizes[1]) : 0;
+    }
+
+    _placeInPanel() {
+        const centerBox = this._panelAncestor()?._centerBox;
+        if (!centerBox || this.get_parent() === centerBox)
+            return false;
+
+        // add_child refuses a child that still has a parent (Clutter asserts and
+        // silently does nothing), so the list is unparented first.
+        const parent = this.get_parent();
+        if (parent)
+            parent.remove_child(this);
+
+        centerBox.add_child(this);
+        return true;
+    }
+
+    /** See _placeInPanel: the width the centre box may take. */
+    _roomWidth() {
+        const panel = this._panelAncestor();
+        const monitor = Main.layoutManager.findMonitorForActor(this) ??
+            Main.layoutManager.primaryMonitor;
+        if (!panel || !monitor)
+            return -1;
+
+        const side = Math.max(
+            this._naturalWidth(panel._leftBox),
+            this._naturalWidth(panel._rightBox));
+        return Math.max(0, Math.floor(monitor.width - 2 * side));
+    }
+
+    /**
+     * Share the room out over the buttons. The preference is still the maximum:
+     * what each button may ask for is that preference, or the room divided by the
+     * number of windows, whichever is smaller - and the leftover room goes to the
+     * blank tail.
+     */
+    _shareRoom() {
+        const room = this._roomWidth();
+        const count = this._buttons.size;
+        const preference = this._settings.get_int('window-button-width');
+
+        let cap = preference;
+        if (room >= 0 && count > 0) {
+            const each = Math.floor(room / count);
+            cap = preference > 0 ? Math.min(preference, each) : each;
+        }
+        this._buttons.forEach(button => button.updateStyle(cap));
+
+        if (room < 0) {
+            this._spacer.visible = false;
+            this._spacer.style = '';
+            return;
+        }
+
+        // the spacer's own request is part of the measured natural width
+        const withoutSpacer = this._naturalWidth(this) - this._naturalWidth(this._spacer);
+        this._spacer.visible = true;
+        this._spacer.style = `min-width: ${Math.max(0, room - withoutSpacer)}px;`;
+    }
+
     /** Windows belonging on this monitor's taskbar, in creation order. */
     getWindows() {
         const windows = global.get_window_actors().map(actor => actor.metaWindow);
@@ -537,6 +628,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     redisplay() {
+        this._placeInPanel();
+
         const windows = this.getWindows();
         const visible = new Set(windows);
 
@@ -563,6 +656,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         });
 
         this._syncStates();
+        this._shareRoom();
     }
 
     /** Scroll wheel over a window button cycles through the windows. */

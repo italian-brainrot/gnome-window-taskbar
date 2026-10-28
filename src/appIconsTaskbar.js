@@ -80,10 +80,11 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
 
         Utils.addChildToParent(this, this.mainBox);
 
-        // Fork addition: one button per window, ungrouped, right after the
-        // favourite AppIcons. The grouped running-apps list is not used.
+        // Fork addition: one button per window, ungrouped. The grouped
+        // running-apps list is not used; the list places itself in the panel's
+        // centre box (see WindowsList._placeInPanel) instead of joining the
+        // favourites here, because that is where the room for titles is.
         this.windowsList = new WindowsList(monitor);
-        Utils.addChildToParent(this.mainBox, this.windowsList);
 
         this._setConnections();
         // If AppIconsTaskbar position is moved in the main panel, updateIconGeometry
@@ -356,8 +357,6 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
                 });
             } else if (actor instanceof ShowAppsIcon) {
                 this.mainBox.remove_child(actor);
-            } else if (actor === this.windowsList) {
-                // the window list is permanent, it only moves position below
             } else {
                 this.mainBox.remove_child(actor);
                 actor.destroy();
@@ -430,6 +429,10 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
             this.showAppsIcon.updateIcon();
             this.showAppsIcon.animateIn(animate);
         }
+
+        // the window list is a panel item: a change in the favourites changes
+        // the room left for the buttons, so they are sized afresh
+        this.windowsList?.queueRedisplay();
 
         this.mainBox.queue_relayout();
     }
