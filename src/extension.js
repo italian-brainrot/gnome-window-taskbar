@@ -233,8 +233,20 @@ export default class AzTaskbar extends Extension {
         const showActivitiesButton = this.settings.get_boolean('show-panel-activities-button');
 
         this._panelManagers.forEach(panelManager => {
-            if (panelManager.panel.statusArea.activities)
-                panelManager.panel.statusArea.activities.container.visible = showActivitiesButton;
+            const activities = panelManager.panel.statusArea.activities;
+            if (!activities)
+                return;
+
+            activities.container.visible = showActivitiesButton;
+
+            // The shell re-shows panel items whenever it relayouts them, so the
+            // hidden state has to be pushed back every time it happens.
+            if (!activities._windowTaskbarShowId) {
+                activities._windowTaskbarShowId = activities.container.connect('show', () => {
+                    if (!this.settings.get_boolean('show-panel-activities-button'))
+                        activities.container.hide();
+                });
+            }
         });
     }
 
