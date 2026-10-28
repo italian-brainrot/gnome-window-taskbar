@@ -354,6 +354,11 @@ export const PanelManager = class azTaskbarPanelManager {
     }
 
     destroy() {
+        if (this._activitiesShowId) {
+            this.panel.statusArea.activities?.container?.disconnect(this._activitiesShowId);
+            this._activitiesShowId = null;
+        }
+
         this._panelBox.appIconsTaskbar = null;
         this._panelBox.intellihide = null;
         if (this.isMainPanel)

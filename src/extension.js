@@ -240,15 +240,19 @@ export default class AzTaskbar extends Extension {
             activities.container.visible = showActivitiesButton;
 
             // The shell re-shows panel items whenever it relayouts them, so the
-            // hidden state has to be pushed back every time it happens.
-            if (!activities._windowTaskbarShowId) {
-                activities._windowTaskbarShowId = activities.container.connect('show', () => {
-                    // the handler also fires while the instance is being torn down
-                    if (!this.settings || this.settings.get_boolean('show-panel-activities-button'))
-                        return;
-                    activities.container.hide();
-                });
+            // hidden state has to be pushed back every time it happens. The panel
+            // item outlives the extension (enable/disable cycles), so the id is
+            // kept on the panel manager and disconnected when it goes away.
+            if (panelManager._activitiesShowId) {
+                activities.container.disconnect(panelManager._activitiesShowId);
+                panelManager._activitiesShowId = null;
             }
+            panelManager._activitiesShowId = activities.container.connect('show', () => {
+                // the handler can also fire while the instance is being torn down
+                if (!this.settings || this.settings.get_boolean('show-panel-activities-button'))
+                    return;
+                activities.container.hide();
+            });
         });
     }
 
