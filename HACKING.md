@@ -11,7 +11,13 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
 1. **Identity** (`fork: rebrand…`): new uuid `windowtaskbar@italian-brainrot.github.io`,
    new settings schema `org.gnome.shell.extensions.windowtaskbar` (new dconf path,
    so the fork never touches aztaskbar's settings), upstream's update notifier
-   removed (it asks for aztaskbar releases, which is meaningless for a fork).
+   removed (it asks for aztaskbar releases, which is meaningless for a fork), and the
+   keys that went with it (`update-notifier-*`) out of the schema - along with
+   `multi-window-indicator`, the boolean that switched the running/focused dash on:
+   the fork always shows that dash on the window buttons, and only its style
+   (`multi-window-indicator-style`) is a choice. Keys are dropped rather than left
+   unused, because a prefs page full of options that do nothing is worse than a
+   stale dconf entry.
 2. **No grouping + window titles** (`windowButtons.js`): a `WindowsList`
    (`St.BoxLayout`) lives inside aztaskbar's `mainBox`, inserted right after the
    favourite `AppIcon`s. Every window on the current workspace (also minimized
@@ -104,13 +110,27 @@ collapsed to a few characters. So the window list (`WindowsList`) reparents
 itself into the panel's **centre box** (`_placeInPanel`), where the room between
 the favourites and the status area is, and shares that room out:
 
-* `_roomWidth()` = `monitor.width - 2 * max(leftBox, rightBox)` natural widths,
-  i.e. exactly what the centre box may take without squeezing the clock;
+* `_roomWidth()` asks the panel that does the allocating - the two panels leave
+  different amounts of room, and the list has to know what it is going to get:
+  on the primary monitor (where the fork does not build a panel) it is the
+  shell's own panel, `monitor.width - 2 * max(leftBox, rightBox)` natural widths,
+  exactly what the centre box may take without squeezing the clock; on every other
+  monitor it is the fork's own panel, which does *not* keep the two side boxes the
+  same width (its `vfunc_allocate` hands a box the room the other one does not
+  need), so there `Panel.centerBoxRoom()` says what the panel can spare: its width,
+  less what both side boxes insist on keeping, less the rest of the centre box
+  (the date menu lives in that box). Guessing the symmetric formula over there
+  sizes the list to something other than what it is allocated, and the panel then
+  hands a side box less than that box asks for - the favourites get clipped, not the
+  titles, and the layout numbers in `scripts/dump.sh` start lying;
 * each button's width cap = `window-button-width` preference, or the room
   divided by the number of windows, whichever is smaller (`_shareRoom`), so many
   windows means ellipsized titles rather than a squeezed status area;
-* a blank tail (`_spacer`, `min-width` only) brings the list's natural width up
-  to the full room, so the buttons do not jump as windows come and go.
+* a blank tail (`_spacer`, a fixed `width` and nothing more) brings the list's
+  natural width up to the full room, so the buttons do not jump as windows come and
+  go - and it is always the *last* child: `redisplay` inserts the buttons at their
+  own index instead of appending, which would put the tail in front of the buttons
+  and hand the unused room to the middle of the taskbar.
 
 Numbers from a 1920 px panel (2560x1600 at 1.333x): left box 308 px (Show-Apps +
 10 favourite icons at 16 px), centre box 1056 px, right box 432 px (clock, quick
@@ -152,6 +172,32 @@ which is what stops a browser with a long tab title in it from making the button
 enormous. Clutter never gets a minimum on the label, only a maximum: a box child
 that asks for more than it can get is fatal, and that is covered above in "Size
 requests: these can kill the session".
+
+## Style writes to an actor that has no panel yet
+
+The window list is created before it has a panel to sit in (`AppIconsTaskbar` builds
+it, and `_placeInPanel` is what puts it in a centre box). Writing a `style` to an actor
+that is not on the stage makes St shout `st_widget_get_theme_node called on the widget
+… which is not in the stage` - the answer is a NULL theme node, so nothing breaks, but
+it is this fork's own signature in the journal, six entries deep, at every session
+start, and `scripts/hotreload.sh` used to grep right past it.
+
+So the list measures and styles itself only while it is on the stage: `_isStaged()`
+checks that, `updateStyle()` and `_shareRoom()` skip the pass when it is not, and
+`_placeInPanel()` makes the writes again the moment there is a panel to hold them.
+`_naturalWidth()` has the same guard for the measuring side.
+
+## The window menu, and a window that goes away
+
+The items of the window button's menu capture the `Meta.Window`, and a window can be
+closed - by its own application, or from the keyboard - while that menu is open.
+There is no `is_destroyed` in the `Meta.Window` API of mutter 18 to ask with
+(verified with introspection, see the API notes above), so the button keeps the state
+itself: `unmanaging` fires while the window is still reachable, and it sets
+`_windowGone` and closes the menu. Every menu action (`_menuItem`) and every click
+(`_activate`, the middle-click close) is a no-op after that. The button is destroyed
+one signal later, on `unmanaged`, and something that fires in between still holds this
+window - which is why closing the menu is not the whole guard.
 
 ## Tearing down: never destroy the panel item from the list's own teardown
 
@@ -245,3 +291,32 @@ An enable that throws used to leave the half-built instance's actors in the pane
 numbers lie): `dev/loader.js` tears the instance down again when `enable()`
 throws, and `dev/probe.js` removes panel children whose GObject type name ends
 with the number of an older iteration.
+
+## Shipping it: what `scripts/install.sh` does, and what it does not
+
+```
+scripts/install.sh            # build + copy into ~/.local/share/gnome-shell/extensions
+scripts/install.sh disable    # and take it out of the session
+scripts/install.sh prefs      # the preferences window
+```
+
+The install is a plain copy, never `gnome-extensions pack`: `pack` honours the
+repository's `.gitignore` and drops most of our files. What reloads the extension in
+the running shell is the `gnome-extensions disable`/`enable` pair - and there is
+deliberately no `ReloadExtension` D-Bus call in the script. When no
+`org.gnome.Shell.Extensions` instance is running, that call *activates* one, and the
+request lands on an instance that has not exported its interface yet: it answers
+`Missing handler for DBus method ReloadExtension`, and the reload never happens (the
+failure was hidden behind an `|| true` the whole time). Do not add it back.
+
+The three steps by hand, on a machine that does not run this repository:
+
+1. copy `dist/<uuid>/` (or `src/`, built with `scripts/build.sh`) to
+   `~/.local/share/gnome-shell/extensions/<uuid>/` - the uuid is in `src/metadata.json`
+   and the directory must be called that, or the shell will not find the schema;
+2. make sure `schemas/gschemas.compiled` is there (it is a binary, and the Extensions
+   app reads the keys through it - `glib-compile-schemas <that schemas directory>`
+   if it is missing);
+3. log out and back in (GNOME Shell scans extension directories at session start
+   only), then enable it: the Extensions app, or
+   `gnome-extensions enable <uuid>` from a shell in the session.
