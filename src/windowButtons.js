@@ -34,7 +34,22 @@ const DEGREES = Math.PI / 180;
 // A window title that can be ellipsized from; the width preference subtracts
 // the button's own chrome (padding, border, the icon and its spacing).
 const MIN_LABEL_WIDTH = 24;
+
+// What a button's theme spends around its content, for the moments there is no
+// theme node to read it from: before the list is on the stage, and for a button
+// that has just been created. The real number is measured (themeChrome());
+// guessing it is what lets the row ask the panel for more than it has, because
+// the width preference is spent on the title while the padding and the border
+// come on top of it. On this shell the honest figure is 22px - the fork's own
+// .azTaskbar-BaseIcon padding of 8px per side plus the 3px border that
+// '#panel .panel-button' (an id selector, so it outranks our class) puts on
+// every panel button.
 const BUTTON_CHROME_WIDTH = 24;
+
+// The same for the window list itself: its padding and the border that draws the
+// separator line in front of the buttons (see .azTaskbar-window-list in
+// stylesheet.css), again only for the pass with no theme node to read.
+const BUTTON_ROW_WIDTH = 9;
 
 // Clutter.button-event button numbers; St.Button itself has no get_button().
 const BUTTON_PRIMARY = 1;
@@ -291,6 +306,28 @@ class WindowTaskbarButton extends St.Button {
         return settings.get_boolean('window-button-icons') ? settings.get_int('icon-size') : 0;
     }
 
+    /**
+     * What the theme spends around the button's content: its horizontal padding
+     * and border. Read off the theme node, because that is what the panel has to
+     * lay out - the width preference buys the title, and everything the theme
+     * takes for itself is asked for on top of it.
+     *
+     * An actor that is not on the stage has no theme node (and St shouts about
+     * the question), so the constant is the answer for that moment.
+     */
+    themeChrome() {
+        if (this.get_stage() === null)
+            return BUTTON_CHROME_WIDTH;
+
+        const node = this.get_theme_node();
+        if (!node)
+            return BUTTON_CHROME_WIDTH;
+
+        const chrome = [St.Side.LEFT, St.Side.RIGHT].reduce(
+            (sum, side) => sum + node.get_padding(side) + node.get_border_width(side), 0);
+        return Math.round(chrome);
+    }
+
     updateIcon() {
         const app = this.getApp();
         this._app = app;
@@ -353,7 +390,7 @@ class WindowTaskbarButton extends St.Button {
         if (requested > 0) {
             // the floor is only ever a maximum (max_width), so it is safe
             this._label.max_width = Math.max(MIN_LABEL_WIDTH,
-                requested - BUTTON_CHROME_WIDTH - this._iconWidth());
+                requested - this.themeChrome() - this._iconWidth());
         }
 
         // the font size comes as a style; the width cap is the max_width property,
@@ -506,6 +543,10 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this._monitor = monitor;
         this._settings = TaskbarManager.settings;
         this._buttons = new Map();
+        // the panel this list sits in, and the room it had when the buttons were
+        // last sized (see _watchPanelRoom)
+        this._panel = null;
+        this._measuredRoom = -1;
 
         // Blank tail that eats whatever room the buttons do not use: the list
         // then always asks for the full width the panel can give it, so the
@@ -548,8 +589,12 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         [...styleKeys, ...layoutKeys, ...titleKeys].forEach(key => {
             this._settings.connectObject(`changed::${key}`, () => {
+                // A setting is not styled here: the buttons get their style from
+                // the same pass that works the room out (_shareRoom), and styling
+                // them first would hand the panel a row of uncapped buttons for a
+                // moment - long enough to shove the status area off the monitor.
                 if (styleKeys.includes(key))
-                    this._buttons.forEach(button => button.updateStyle());
+                    this.updateStyle();
                 if (titleKeys.includes(key))
                     this._buttons.forEach(button => button.updateTitle());
                 this.queueRedisplay();
@@ -590,14 +635,6 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     /**
-     * The panel keeps its left and right boxes the same width (aztaskbar and
-     * the shell both do it that way to keep the centre box centred), so a taskbar
-     * in the left box only ever gets half the panel: titles get squeezed as soon
-     * as there are many windows. The centre box is not capped that way, and it is
-     * exactly the space between the favourites and the status area, so the window
-     * list lives there - it may be as wide as twice the widest side box leaves over.
-     */
-    /**
      * The panel this actor sits in, or the one `via` sits in for as long as the
      * list has no parent of its own (works for the shell's panel and the fork's).
      */
@@ -635,17 +672,29 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     _placeInPanel(via = null) {
-        const centerBox = this._panelAncestor(via)?._centerBox;
-        if (!centerBox || this.get_parent() === centerBox)
+        const panel = this._panelAncestor(via);
+        const centerBox = panel?._centerBox;
+
+        if (!centerBox)
             return false;
 
-        // add_child refuses a child that still has a parent (Clutter asserts and
-        // silently does nothing), so the list is unparented first.
-        const parent = this.get_parent();
-        if (parent)
-            parent.remove_child(this);
+        const placed = this.get_parent() === centerBox;
 
-        centerBox.add_child(this);
+        if (!placed) {
+            // add_child refuses a child that still has a parent (Clutter asserts
+            // and silently does nothing), so the list is unparented first.
+            const parent = this.get_parent();
+            if (parent)
+                parent.remove_child(this);
+
+            centerBox.add_child(this);
+        }
+
+        if (placed && panel === this._panel)
+            return false;
+
+        this._panel = panel;
+        this._watchPanelRoom(panel);
 
         // the styling and the rooming were skipped while the list was off the
         // stage (see _isStaged); they are made here, where there is a panel
@@ -657,6 +706,31 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this._shareRoom();
 
         return true;
+    }
+
+    /**
+     * Watch the boxes that decide how much room there is.
+     *
+     * The room is what the panel's side boxes are not using, and they change on
+     * their own account: the clock's text gets longer, the message indicator
+     * counts something, another extension's tray icons arrive. None of that is a
+     * window event, so nothing would re-share the room, and a row sized to the
+     * room of five minutes ago is then sized to more than there is - which is the
+     * panel pushing its own status area off the monitor. A relayout of a side box
+     * is the notice that the room may have moved, and the room is measured before
+     * asking for a pass, so the relayout a pass of our own causes does not feed
+     * the loop.
+     */
+    _watchPanelRoom(panel) {
+        this._roomSignals?.destroy();
+        this._roomSignals = new Utils.SignalHandler();
+
+        for (const box of [panel._leftBox, panel._rightBox]) {
+            this._roomSignals.connect(box, 'queue-relayout', () => {
+                if (this._roomWidth() !== this._measuredRoom)
+                    this.queueRedisplay();
+            });
+        }
     }
 
     /**
@@ -679,63 +753,171 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         if (!panel || !monitor)
             return -1;
 
+        // A CSS margin is not part of what the actor reports as its own width: the
+        // box that holds the list puts it *around* the request, so the room the
+        // list may fill is that much smaller.
+        const margin = this._marginWidth();
+
         if (panel.centerBoxRoom)
-            return panel.centerBoxRoom(this);
+            return Math.max(0, panel.centerBoxRoom(this) - margin);
 
         const side = Math.max(
             this._naturalWidth(panel._leftBox),
             this._naturalWidth(panel._rightBox));
-        return Math.max(0, Math.floor(monitor.width - 2 * side));
+        return Math.max(0, Math.floor(monitor.width - 2 * side) - margin);
+    }
+
+    /** The horizontal CSS margin around the list itself, from the theme. */
+    _marginWidth() {
+        if (!this._isStaged())
+            return 0;
+
+        const node = this.get_theme_node();
+        if (!node)
+            return 0;
+
+        return Math.round(
+            node.get_margin(St.Side.LEFT) + node.get_margin(St.Side.RIGHT));
     }
 
     /**
-     * Share the room out over the buttons. The preference is still the maximum:
-     * what each button may ask for is that preference, or the room divided by the
-     * number of windows, whichever is smaller - and the leftover room goes to the
-     * blank tail.
+     * What the row costs apart from its buttons: the list's own padding and
+     * border (the separator line in front of the buttons is one of them), plus
+     * the spacing between the children. Read from the theme node, because it all
+     * comes out of the room the panel has: the width preference buys the title and
+     * the theme takes the rest.
+     *
+     * ClutterBoxLayout leaves an invisible child and the gap after it out of its
+     * request, so the number of children here is the number that are shown - the
+     * blank tail counted with them.
+     */
+    _rowPaddingBorder() {
+        const node = this._isStaged() ? this.get_theme_node() : null;
+        if (!node)
+            return BUTTON_ROW_WIDTH;
+
+        return Math.round([St.Side.LEFT, St.Side.RIGHT].reduce(
+            (sum, side) => sum + node.get_padding(side) + node.get_border_width(side), 0));
+    }
+
+    _rowChrome(children) {
+        const spacing = this._settings.get_int('taskbar-spacing');
+        return this._rowPaddingBorder() + spacing * Math.max(0, children - 1);
+    }
+
+    /** What the first `count` buttons ask for, gaps and the row's own chrome included. */
+    _rowWidth(buttons, count) {
+        const width = buttons.slice(0, count)
+            .reduce((sum, button) => sum + this._naturalWidth(button), 0);
+        return width + this._rowChrome(count + 1);
+    }
+
+    /**
+     * The longest row, from the front, that the room holds at the widths the
+     * buttons are actually asking for. Everything past it is hidden rather than
+     * squeezed: an invisible child asks for nothing, so the row can never leave
+     * the panel with a minimum it cannot honour, and the windows behind it stay
+     * reachable through the overview, as they are beyond _maxButtonCount.
+     */
+    _fitsCount(buttons, room) {
+        const spacing = this._settings.get_int('taskbar-spacing');
+        let used = this._rowPaddingBorder();
+        let count = 0;
+
+        for (const button of buttons) {
+            // every button brings its own width and the gap after it; the blank
+            // tail then fills whatever is left
+            const width = this._naturalWidth(button);
+            if (used + width + spacing * (count + 1) > room)
+                break;
+
+            used += width;
+            count++;
+        }
+
+        return Math.max(1, count);
+    }
+
+    /**
+     * Share the room out over the buttons, and stop when they no longer ask the
+     * panel for more than it has.
+     *
+     * The preference is still the maximum: what each button may ask for is that
+     * preference, or what is left of the room once the row's own cost is paid,
+     * divided by the number of buttons, whichever is smaller. Whether that is
+     * enough is not something the constants can answer - a button is its title, up
+     * to the cap, plus the icon, plus whatever padding and border the theme puts
+     * around them - so the row is styled, measured, and the decision made again on
+     * the measurement:
+     *
+     *   1. the titles give way to icons (window-labels-auto-hide), and
+     *   2. if a row of icons does not fit either, it stops at the last button the
+     *      room holds.
+     *
+     * Both levers take requests away, and that direction is the safe one: a child
+     * insisting on a minimum the box cannot give is the request Clutter answers by
+     * aborting the shell (see "Size requests" in HACKING.md).
      */
     _shareRoom() {
-        // no stage, no panel to take the room from, and no theme node to write
-        // the spacer's width into (see _isStaged)
+        // no stage, no panel to take the room from, and no theme node to measure
+        // against or to write the spacer's width into (see _isStaged)
         if (!this._isStaged())
             return;
 
         const room = this._roomWidth();
-        const count = this._buttons.size;
+        this._measuredRoom = room;
+
+        // the buttons in the order the row lays them out, so that giving up on a
+        // button means giving up on the last one of the row, not on the last one
+        // the map happens to hold
+        const buttons = this.get_children().filter(child => child !== this._spacer);
         const settings = this._settings;
         const preference = settings.get_int('window-button-width');
 
-        let cap = preference;
-        let each = NO_LIMIT;
-        if (room >= 0 && count > 0) {
-            each = Math.floor(room / count);
-            cap = preference > 0 ? Math.min(preference, each) : each;
-        }
-
-        // A title is only worth its room if it can show a few characters: the
-        // button's own padding, the icon and MIN_LABEL_WIDTH worth of title. Below
-        // that the titles give way to icons on their own - that is what keeps a
-        // taskbar full of windows from pushing the panel around.
-        const needs = BUTTON_CHROME_WIDTH + this._buttonIconWidth() + MIN_LABEL_WIDTH;
-        const fit = room < 0 || count === 0 || each >= needs;
-        const showLabels = settings.get_boolean('window-labels') &&
-            (fit || !settings.get_boolean('window-labels-auto-hide'));
-
-        this._buttons.forEach(button => button.updateStyle(cap, showLabels));
-
-        if (room < 0) {
+        if (room < 0 || buttons.length === 0) {
             this._spacer.visible = false;
             this._spacer.style = '';
             return;
         }
 
-        // the spacer's own request is part of the measured natural width, so it is
-        // counted in what the list asks for; it gets a fixed width rather than a
-        // minimum, because a child with a minimum and no natural size of its own is
-        // exactly what Clutter refuses to fit in a box
-        const withoutSpacer = this._naturalWidth(this) - this._naturalWidth(this._spacer);
+        // icons only are an alternative to titles only when there are icons to
+        // show instead of them
+        const givesWay = settings.get_boolean('window-labels-auto-hide') &&
+            settings.get_boolean('window-button-icons');
+
+        let showLabels = settings.get_boolean('window-labels');
+        let shown = buttons.length;
+
+        for (;;) {
+            const each = Math.floor(Math.max(0, room - this._rowChrome(shown + 1)) / shown);
+            const cap = preference > 0 ? Math.min(preference, each) : each;
+
+            buttons.forEach((button, index) => {
+                const visible = index < shown;
+                if (button.visible !== visible)
+                    button.visible = visible;
+                button.updateStyle(cap, showLabels && visible);
+            });
+
+            if (this._rowWidth(buttons, shown) <= room)
+                break;
+
+            if (showLabels && givesWay) {
+                showLabels = false;
+            } else {
+                const fits = this._fitsCount(buttons, room);
+                if (fits >= shown)
+                    break;
+                shown = fits;
+            }
+        }
+
+        // the blank tail eats the room the buttons do not use, so the buttons do
+        // not jump as windows come and go: a fixed width rather than a minimum,
+        // because a child with a minimum and no natural size of its own is exactly
+        // what Clutter refuses to fit in a box
         this._spacer.visible = true;
-        this._spacer.style = `width: ${Math.max(0, room - withoutSpacer)}px;`;
+        this._spacer.style = `width: ${Math.max(0, room - this._rowWidth(buttons, shown))}px;`;
     }
 
     /**
@@ -748,6 +930,10 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      * It is a count limit rather than a size limit on purpose: capping what the
      * list asks for below what its buttons must have is the one request Clutter
      * does not forgive ("natural width ... < minimum" aborts the whole shell).
+     *
+     * This is the cheap first cut, and _shareRoom checks it against the measured
+     * width of the buttons: an estimate that is a button too generous costs a
+     * hidden button at the end of the row, not the clock.
      */
     _maxButtonCount() {
         const room = this._roomWidth();
@@ -757,9 +943,21 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         if (room < 0)
             return Number.MAX_SAFE_INTEGER;
 
-        const smallest = BUTTON_CHROME_WIDTH + this._buttonIconWidth() +
+        const smallest = this._buttonChromeWidth() + this._buttonIconWidth() +
             this._settings.get_int('taskbar-spacing');
         return Math.max(1, Math.floor(room / smallest));
+    }
+
+    /**
+     * The padding and border of a button, measured off the first button that is
+     * on the stage; the constant is only for the pass that has none to measure.
+     */
+    _buttonChromeWidth() {
+        for (const button of this._buttons.values()) {
+            if (button.get_parent() === this)
+                return button.themeChrome();
+        }
+        return BUTTON_CHROME_WIDTH;
     }
 
     _buttonIconWidth() {
@@ -868,6 +1066,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         global.display.disconnectObject(this);
         global.window_manager.disconnectObject(this);
         Shell.AppSystem.get_default().disconnectObject(this);
+        this._roomSignals?.destroy();
+        this._roomSignals = null;
 
         for (const button of this._buttons.values())
             button.destroy();

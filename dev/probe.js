@@ -141,10 +141,46 @@ function windowListDump(list) {
     if (!list)
         return null;
     const windows = list.getWindows?.() ?? [];
+    const buttons = list._buttons instanceof Map
+        ? [...list._buttons.values()]
+        : [...(list._buttons ?? [])];
     return {
         visible: list.visible,
         buttons: list._buttons ? list._buttons.size : null,
         children: list.get_children().length,
+        // how the list worked its own width out (see _shareRoom/_roomWidth)
+        sizing: {
+            room: list._measuredRoom,
+            panel: list._panel?.constructor?.name ?? null,
+            rowPaddingBorder: list._rowPaddingBorder?.(),
+            rowChrome2: list._rowChrome?.(2),
+            buttonChrome: list._buttonChromeWidth?.(),
+            iconWidth: list._buttonIconWidth?.(),
+            maxButtons: list._maxButtonCount?.(),
+            spacer: list._spacer?.style ?? null,
+            spacerVisible: list._spacer?.visible ?? null,
+            spacerNat: list._naturalWidth?.(list._spacer),
+            listNat: list._naturalWidth?.(list),
+            natural: list.get_preferred_width?.(-1),
+            minimum: list.get_preferred_width?.(-1)?.[0],
+            labels: list._settings?.get_boolean('window-labels'),
+            autoHide: list._settings?.get_boolean('window-labels-auto-hide'),
+            icons: list._settings?.get_boolean('window-button-icons'),
+            widthPref: list._settings?.get_int('window-button-width'),
+            spacing: list._settings?.get_int('taskbar-spacing'),
+        },
+        // every button as the layout sees it
+        buttonWidths: list.get_children().filter(c => c !== list._spacer).map(b => ({
+            title: (b.metaWindow?.get_title() ?? '').slice(0, 30),
+            visible: b.visible,
+            nat: b.get_preferred_width?.(-1)?.[1],
+            min: b.get_preferred_width?.(-1)?.[0],
+            chrome: b.themeChrome?.(),
+            labelVisible: b._label?.visible,
+            labelMax: b._label?.max_width,
+            labelNat: b._label?.get_preferred_width?.(-1)?.[1],
+            w: Math.round(b.get_width?.() ?? -1),
+        })),
         windows: windows.map(w => ({
             title: w.get_title(),
             type: w.get_window_type?.() ?? null,

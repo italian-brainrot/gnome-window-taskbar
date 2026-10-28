@@ -71,8 +71,10 @@
    The look follows azTaskbar-BaseIcon / panel-button on purpose, so the
    favourites and the window list keep the same visuals. */
 .azTaskbar-window-list {
-  padding-left: 6px;
-  margin-left: 2px;
+  /* Padding, never margin: a margin sits around the width the list reports for
+     itself, while the panel lays out both, so the room the list works its sizing
+     out from would not be the room there is. See WindowsList._roomWidth. */
+  padding-left: 8px;
   border-left: 1px solid rgba(128, 128, 128, 0.4);
 }
 

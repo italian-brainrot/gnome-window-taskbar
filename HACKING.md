@@ -69,6 +69,34 @@ per window is too small), `window-title-max-chars` (0 = the whole title),
 * `org.gnome.Shell.Eval` is refused (unsafe-mode is off, and Wayland can not
   restart the shell in place), so errors are read from the journal:
   `scripts/logs.sh`.
+* The same refusal is what makes `global.context.unsafe_mode` the only way to get
+  `Eval` (it is set from Looking Glass, or from `Eval` itself - no use from outside),
+  and no signal of Clutter's can be reached from outside the shell either: what is
+  readable from a container is the journal, the gsettings, and the extension
+  directories on disk.
+* **An extension's code is imported once per shell session.** The shell does
+  `await import(extensionJs.get_uri())` (extensionSystem.js, `_callExtensionInit`) and
+  notes `extension.isImported = true` - a plain GJS module import, with no cache
+  buster in the URI, so the module cache answers for the rest of the session.
+  Consequences, both verified on this host:
+  - a fresh install needs a session restart to be imported at all (the extension
+    directory scan is a second, earlier gate: see "Dev loop");
+  - `gnome-extensions disable` + `enable` re-runs `disable()`/`enable()` - it rebuilds
+    the actors, it does *not* load edited files. `scripts/install.sh` therefore
+    installs the code for the *next* session, and the only in-session reload there is
+    is the dev loader, whose iteration directories are new module URIs;
+  - because the class names of an already-imported module stay registered, a copy of
+    the tree loaded next to it has to rename them (`dev/rename_classes.py`).
+* `St.ThemeNode` is readable from JS and is how the theme's numbers are got at
+  honestly: `get_padding(side)`, `get_border_width(side)`, `get_margin(side)`,
+  `get_min_width()`, `get_max_width()` (verified against the `St-18` typelib; St lives
+  in `/usr/lib64/gnome-shell/`, so `GI_TYPELIB_PATH` and `LD_LIBRARY_PATH` both have
+  to point there for a host `gjs` to load it).
+* Clutter 18 (mutter 18) actor signals, from the same typelib: `allocate`,
+  `queue-relayout`, `destroy`, the button/scroll/motion events. There is **no**
+  `size-change` any more, and `Clutter.init()` does not exist either - the Clutter
+  context belongs to mutter, so St cannot be run standalone to measure the theme's
+  numbers: they have to be read inside the shell.
 
 ## Size requests: these can kill the session
 
@@ -139,33 +167,62 @@ settings). The window list gets the full 1056 px.
 ## When the panel runs out of room
 
 Too many windows and a naive taskbar pushes the favourites and the status area off
-the monitor. Three things keep that from happening, all of them inside the room the
-centre box has (`_roomWidth`):
+the monitor: the shell allocates the centre box exactly the natural width it is
+asked for (`#panel vfunc_allocate` in the shell's own panel.js - `sideWidth =
+(panel - centreBox) / 2`, and each side box then gets `min(sideWidth, its natural)`),
+so a window list that asks for more than the room makes the side boxes narrower than
+their own content, and the clock and quick settings are laid out past the edge of the
+screen. Everything here therefore works off the room the centre box has
+(`_roomWidth`) and off what the buttons *actually* ask for:
 
-* **room per window**: `_shareRoom` divides the room by the number of buttons, and
-  that is what each button may ask for at most (`window-button-width` stays the
-  cap it shares, so the preference is never what overflows).
-* **titles give way to icons**: a title is only worth its room if it can show a few
-  characters, which means the button's padding (`BUTTON_CHROME_WIDTH`), the icon and
-  `MIN_LABEL_WIDTH`. Below that the titles go away on their own and the buttons are
-  icons: `window-labels-auto-hide`, and the same decision is handed down to
-  `WindowTaskbarButton.updateStyle(widthCap, showLabels)`, so it is the list that
-  works the room out and the buttons that agree about it.
+* **measured, not assumed**: what a row costs is its buttons plus the row's own
+  padding, border and spacing (`_rowPaddingBorder`, `_rowChrome`) plus what the theme
+  spends around each button (`WindowButton.themeChrome`, which reads the padding and
+  the border off the theme node). These numbers are not knowable from the fork's own
+  stylesheet: `#panel .panel-button` (an id selector, so it outranks our class) puts a
+  3px border on every panel button, and the box around the list is a CSS margin, which
+  is not part of the width the list reports for itself. The constants are only a
+  fallback for the pass with no theme node to read.
+* **room per window**: `_shareRoom` divides what the room leaves over by the number of
+  buttons, and that is what each button may ask for at most (`window-button-width`
+  stays the cap it shares, so the preference is never what overflows).
+* **the row is measured after it is styled**: `_rowWidth` adds up what the buttons
+  really request. If that is more than the room, the pass does not simply accept it -
+  it works down, and it only ever works *down*:
+  1. **the titles give way to icons** (`window-labels-auto-hide`; nothing gives way
+     when `window-button-icons` is off, because there would be nothing left to show),
+     and
+  2. **the row stops at the last button the room holds** (`_fitsCount` on the measured
+     widths; the buttons past it are hidden, and hidden children ask for nothing).
+     The windows left over are the overview's business.
 * **a limit on how many buttons there are**: `_maxButtonCount` works out how many
-  buttons the room holds at their smallest (icons only) and `redisplay` stops adding
-  buttons past that; the windows left over are the overview's business. The status
-  area and the favourites therefore stay where they are.
+  buttons the room can hold at their smallest (icons only) and `redisplay` stops
+  adding buttons past that. It is the cheap first cut; the measured `_fitsCount` above
+  is what decides, so an estimate that is a button too generous costs a hidden button
+  at the end of the row, not the clock.
 
-  This is a limit on the *count*, not a cap on what the list asks for, and that
-  distinction is the whole point: capping the list below the minimum its buttons
-  must have is the one request Clutter does not forgive ("natural width ... <
-  minimum" aborts the shell, which is how a session was lost before). A *maximum*
-  on the title (`max_width`) is fine; a *minimum* on that same label is fatal. A
-  scroll wrapper was tried instead of the count limit and is out: the wrapper would
-  be the list's parent, and a child tearing down its own parent aborts the shell
-  (see "Tearing down" below). A wrapper the fork owns outright could be added back,
-  but it has to be tested against a real disable.
+  Both are limits on the *count*, not caps on what the list asks for, and that
+  distinction is the whole point: capping the list below the minimum its buttons must
+  have is the one request Clutter does not forgive ("natural width ... < minimum"
+  aborts the shell, which is how a session was lost before). A *maximum* on the title
+  (`max_width`) is fine; a *minimum* on that same label is fatal. A scroll wrapper was
+  tried instead of the count limit and is out: the wrapper would be the list's parent,
+  and a child tearing down its own parent aborts the shell (see "Tearing down"
+  below). A wrapper the fork owns outright could be added back, but it has to be
+  tested against a real disable.
 
+* **the room is re-measured when it moves**: the room is what the panel's side boxes
+  are not using, and they change on their own account - the clock's text, the message
+  indicator, another extension's tray icons. `_watchPanelRoom` listens for a relayout
+  of either side box and re-shares the room when the measured room has actually moved
+  (the comparison is what keeps the relayout our own pass causes from feeding the
+  loop). Clutter 18 has no `size-change` signal any more - the typelib knows `allocate`
+  and `queue-relayout` only.
+
+* **a setting change is a redisplay, not a restyle**: the buttons are styled by the
+  same pass that works the room out, because styling them straight from the settings
+  signal hands the panel a row of uncapped buttons for the 30 ms before the next
+  `_shareRoom`.
 
 The title is cut to `window-title-max-chars` characters before the layout sees it,
 which is what stops a browser with a long tab title in it from making the buttons
