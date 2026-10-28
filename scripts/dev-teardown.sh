@@ -35,11 +35,14 @@ rm -rf "$EXT_ROOT/$DEV_UUID"
 # 'scan test' directory sits in 'gnome-extensions list' for good (and might be
 # loaded one day). The patterns are dev names only - the uuid that ships ends in
 # '.github.io', so nothing in here can touch the extension being installed.
-for uuid in *-dev@local* *@local.dev; do
-    [[ -d $EXT_ROOT/$uuid ]] || continue
-    echo "removing leftover dev extension directory: $EXT_ROOT/$uuid"
+# the globs expand to the directories that are actually there (a [[ -d ]] test
+# would take them literally), and the uuid is only ever the last path component
+for dir in "$EXT_ROOT"/*-dev@local* "$EXT_ROOT"/*@local.dev; do
+    [[ -d $dir ]] || continue
+    uuid=${dir##*/}
+    echo "removing leftover dev extension directory: $dir"
     HOST_EXEC gnome-extensions disable "$uuid" >/dev/null 2>&1 || true
-    rm -rf "$EXT_ROOT/$uuid"
+    rm -rf "$dir"
 done
 
 # The harness state in the working tree belongs to the iterations that went with
