@@ -155,6 +155,8 @@ class WindowTaskbarButton extends St.Button {
         this._settings = TaskbarManager.settings;
         this._tracker = Shell.WindowTracker.get_default();
         this._app = null;
+        // whether the window is on its way out (see _watchWindow, _menuItem)
+        this._windowGone = false;
 
         // St.BoxLayout has no y_fill: vertical fill comes from the child's
         // y_align/y_expand pair only.
@@ -229,14 +231,27 @@ class WindowTaskbarButton extends St.Button {
         const refresh = () => this.syncState();
 
         // Signal names verified against mutter 18 (GNOME Shell 50.6):
-        // Meta.Window has 'focus', 'unmanaged', 'workspace-changed' and
-        // notify:: on its GObject properties.
+        // Meta.Window has 'focus', 'unmanaged', 'unmanaging', 'workspace-changed'
+        // and notify:: on its GObject properties.
         this._signals.connect(window, 'notify::title', () => this.updateTitle());
         this._signals.connect(window, 'notify::minimized', refresh);
         this._signals.connect(window, 'notify::demands-attention', refresh);
         this._signals.connect(window, 'focus', refresh);
-        this._signals.connect(window, 'unmanaged', () => this._list.removeWindow(window));
         this._signals.connect(window, 'workspace-changed', () => this._list.queueRedisplay());
+        this._signals.connect(window, 'unmanaging', () => this._windowIsLeaving());
+        this._signals.connect(window, 'unmanaged', () => this._list.removeWindow(window));
+    }
+
+    /**
+     * The window is gone. Nothing may be asked of it any more: 'unmanaging'
+     * fires while it is still usable, and mutter does not answer politely for a
+     * window that is not managed - the button is only destroyed one signal later
+     * ('unmanaged'), and anything that fires in between, in particular an item
+     * of the window menu the user left open, still holds this window.
+     */
+    _windowIsLeaving() {
+        this._windowGone = true;
+        this._menu?.close();
     }
 
     get focused() {
@@ -367,7 +382,8 @@ class WindowTaskbarButton extends St.Button {
 
         // Middle click, and shift+click, close the window.
         if (button === BUTTON_MIDDLE || shiftPressed) {
-            this.metaWindow.delete(global.get_current_time());
+            if (!this._windowGone)
+                this.metaWindow.delete(global.get_current_time());
             return;
         }
 
@@ -378,6 +394,9 @@ class WindowTaskbarButton extends St.Button {
     /** Clicking the focused, unminimized window minimizes it, otherwise it raises it. */
     _activate() {
         const window = this.metaWindow;
+
+        if (this._windowGone)
+            return;
 
         if (window.minimized || !window.has_focus())
             Main.activateWindow(window);
@@ -409,49 +428,54 @@ class WindowTaskbarButton extends St.Button {
         return location === PanelLocation.BOTTOM ? St.Side.BOTTOM : St.Side.TOP;
     }
 
+    /**
+     * A menu item that hands the window to its action, and does nothing at all
+     * when the window is on its way out - the menu can be open while the window
+     * closes itself, or while its application closes it, and the item still
+     * fires. See _windowIsLeaving().
+     */
+    _menuItem(label, action) {
+        const item = new PopupMenu.PopupMenuItem(label);
+        item.connect('activate', () => {
+            if (this._windowGone)
+                return;
+            action(this.metaWindow);
+        });
+        this._menu.addMenuItem(item);
+    }
+
     _popupMenu() {
         if (this._menu) {
             this._menu.toggle();
             return;
         }
 
-        const window = this.metaWindow;
         this._menu = new PopupMenu.PopupMenu(this, 0.5, this._menuSide());
 
-        const minimizeItem = new PopupMenu.PopupMenuItem(_('Minimize'));
-        minimizeItem.connect('activate', () => window.minimize());
-        this._menu.addMenuItem(minimizeItem);
+        this._menuItem(_('Minimize'), window => window.minimize());
 
-        const maximizeItem = new PopupMenu.PopupMenuItem(_('Maximize'));
-        maximizeItem.connect('activate', () => {
+        this._menuItem(_('Maximize'), window => {
             const flags = Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL;
             if (window.is_maximized())
                 window.unmaximize(flags);
             else
                 window.maximize(flags);
         });
-        this._menu.addMenuItem(maximizeItem);
 
-        const keepAboveItem = new PopupMenu.PopupMenuItem(_('Keep above other windows'));
-        keepAboveItem.connect('activate', () => {
+        this._menuItem(_('Keep above other windows'), window => {
             if (window.is_above())
                 window.unmake_above();
             else
                 window.make_above();
         });
-        this._menu.addMenuItem(keepAboveItem);
 
-        const toWorkspaceItem = new PopupMenu.PopupMenuItem(_('Move to this workspace'));
-        toWorkspaceItem.connect('activate', () => {
+        this._menuItem(_('Move to this workspace'), window => {
             window.change_workspace(global.workspace_manager.get_active_workspace());
         });
-        this._menu.addMenuItem(toWorkspaceItem);
 
         this._menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        const closeItem = new PopupMenu.PopupMenuItem(_('Close'));
-        closeItem.connect('activate', () => window.delete(global.get_current_time()));
-        this._menu.addMenuItem(closeItem);
+        this._menuItem(_('Close'), window => window.delete(global.get_current_time()));
 
         this._menuManager.addMenu(this._menu);
         this._menu.open(global.get_current_time());
