@@ -128,21 +128,6 @@ class AzTaskbarAboutPage extends Adw.PreferencesPage {
         });
         whatsNewPage.add(enableNotificationsGroup);
 
-        const enableNotificationsSwitch = new Gtk.Switch({
-            valign: Gtk.Align.CENTER,
-            active: settings.get_boolean('update-notifier-enabled'),
-        });
-        enableNotificationsSwitch.connect('notify::active', widget => {
-            settings.set_boolean('update-notifier-enabled', widget.get_active());
-        });
-        const enableNotificationsRow = new Adw.ActionRow({
-            title: _('Message Tray Update Notification'),
-            subtitle: _('Show a notification when %s receives an update.').format(_(PROJECT_NAME)),
-            activatable_widget: enableNotificationsSwitch,
-        });
-        enableNotificationsRow.add_suffix(enableNotificationsSwitch);
-        enableNotificationsGroup.add(enableNotificationsRow);
-
         if (metadata.commit) {
             const commitRow = new Adw.ActionRow({
                 title: _('Git Commit'),

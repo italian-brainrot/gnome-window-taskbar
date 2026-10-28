@@ -12,7 +12,6 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {DesktopIconsUsableAreaClass} from './desktopIconsIntegration.js';
 import {NotificationsMonitor} from './notificationsMonitor.js';
 import {PanelManager} from './panelManager.js';
-import {UpdateNotification} from './updateNotifier.js';
 import {TaskbarManager} from './taskbarManager.js';
 import * as Theming from './theming.js';
 import * as UnityLauncherAPI from './unityLauncherAPI.js';
@@ -44,8 +43,6 @@ export default class AzTaskbar extends Extension {
 
         this.customStylesheet = null;
         Theming.createStylesheet();
-
-        this._updateNotification = new UpdateNotification(this);
 
         this.settings.connectObject('changed::position-in-panel', () => this._setAppsPosition(), this);
         this.settings.connectObject('changed::position-offset', () => this._setAppsPosition(), this);
@@ -115,9 +112,6 @@ export default class AzTaskbar extends Extension {
 
         this._deletePanels();
         delete global.azTaskbar;
-
-        this._updateNotification.destroy();
-        this._updateNotification = null;
 
         this._taskbarManager.destroy();
         this._taskbarManager = null;

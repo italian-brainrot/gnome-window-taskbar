@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-    <enum id='org.gnome.shell.extensions.aztaskbar.indicator-location'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.indicator-location'>
         <value value='0' nick='TOP'/>
         <value value='1' nick='BOTTOM'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.panel-location'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.panel-location'>
         <value value='0' nick='TOP'/>
         <value value='1' nick='BOTTOM'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.click-action'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.click-action'>
         <value value='0' nick='CYCLE'/>
         <value value='1' nick='CYCLE_MINIMIZE'/>
         <value value='2' nick='PREVIEW'/>
@@ -19,38 +19,38 @@
         <value value='7' nick='LAUNCH'/>
         <value value='8' nick='RAISE_HERE'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.window-preview-click-action'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.window-preview-click-action'>
         <value value='0' nick='RAISE'/>
         <value value='1' nick='RAISE_MINIMIZE'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.scroll-action'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.scroll-action'>
         <value value='0' nick='CYCLE'/>
         <value value='1' nick='NO_ACTION'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.proximityBehavior'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.proximityBehavior'>
         <value value='0' nick='ALL_WINDOWS'/>
         <value value='1' nick='FOCUSED_WINDOWS'/>
         <value value='2' nick='MAXIMIZED_WINDOWS'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.position-in-panel'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.position-in-panel'>
         <value value='0' nick='LEFT'/>
         <value value='1' nick='CENTER'/>
         <value value='2' nick='RIGHT'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.icon-style'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.icon-style'>
         <value value='0' nick='REGULAR'/>
         <value value='1' nick='SYMBOLIC'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.multi-window-indicator-style'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.multi-window-indicator-style'>
         <value value='0' nick='INDICATOR'/>
         <value value='1' nick='MULTI_DASH'/>
     </enum>
-    <enum id='org.gnome.shell.extensions.aztaskbar.show-weather-by-clock'>
+    <enum id='org.gnome.shell.extensions.windowtaskbar.show-weather-by-clock'>
         <value value='0' nick='OFF'/>
         <value value='1' nick='LEFT'/>
         <value value='2' nick='RIGHT'/>
     </enum>
-    <schema id="org.gnome.shell.extensions.aztaskbar" path="/org/gnome/shell/extensions/aztaskbar/">
+    <schema id="org.gnome.shell.extensions.windowtaskbar" path="/org/gnome/shell/extensions/windowtaskbar/">
         <key type="i" name="update-notifier-project-version">
             <default>0</default>
             <summary>The project version of when an update notification was shown</summary>
@@ -87,7 +87,7 @@
             <default>true</default>
             <summary>Only hide from windows</summary>
         </key>
-        <key name="intellihide-behaviour" enum="org.gnome.shell.extensions.aztaskbar.proximityBehavior">
+        <key name="intellihide-behaviour" enum="org.gnome.shell.extensions.windowtaskbar.proximityBehavior">
             <default>'FOCUSED_WINDOWS'</default>
             <summary>Intellihide behaviour</summary>
         </key>
@@ -135,7 +135,7 @@
             <default>2000</default>
             <summary>Intellihide enable start delay</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.panel-location" name="panel-location">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.panel-location" name="panel-location">
             <default>'TOP'</default>
             <summary>Panel location. TOP or BOTTOM</summary>
         </key>
@@ -191,7 +191,7 @@
             <default>300</default>
             <summary>Delay for switching between window previews (ms)</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.window-preview-click-action" name="window-preview-click-action">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.window-preview-click-action" name="window-preview-click-action">
             <default>'RAISE'</default>
             <summary>Window Previews click action</summary>
         </key>
@@ -244,11 +244,11 @@
             <default>true</default>
             <summary>Show an indicator when app has multiple windows</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.multi-window-indicator-style" name="multi-window-indicator-style">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.multi-window-indicator-style" name="multi-window-indicator-style">
             <default>'MULTI_DASH'</default>
             <summary>Multiple window indicator style</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.indicator-location" name="indicator-location">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.indicator-location" name="indicator-location">
             <default>'TOP'</default>
             <summary>AppIcon indicator location. TOP or BOTTOM</summary>
         </key>
@@ -296,23 +296,23 @@
             <default>0</default>
             <summary>Spacing between AppIcons on the taskbar</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.click-action" name="click-action">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.click-action" name="click-action">
             <default>'CYCLE_MINIMIZE'</default>
             <summary>Left Click action for running AppIcons</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.click-action" name="middle-click-action">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.click-action" name="middle-click-action">
             <default>'LAUNCH'</default>
             <summary>Middle Click action for running AppIcons</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.click-action" name="shift-middle-click-action">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.click-action" name="shift-middle-click-action">
             <default>'LAUNCH'</default>
             <summary>Shift + Middle Click action for running AppIcons</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.scroll-action" name="scroll-action">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.scroll-action" name="scroll-action">
             <default>'CYCLE'</default>
             <summary>Scroll action for running AppIcons</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.position-in-panel" name="position-in-panel">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.position-in-panel" name="position-in-panel">
             <default>'LEFT'</default>
             <summary>Position in panel. LEFT, CENTER, or RIGHT</summary>
         </key>
@@ -320,7 +320,7 @@
             <default>1</default>
             <summary>Position in the selected panel-box</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.position-in-panel" name="clock-position-in-panel">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.position-in-panel" name="clock-position-in-panel">
             <default>'CENTER'</default>
             <summary>Clock Position in panel. LEFT, CENTER, or RIGHT</summary>
         </key>
@@ -336,7 +336,7 @@
             <default>0.0</default>
             <summary>Desaturate effect for AppIcons. 0.0 - 1.0</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.icon-style" name="icon-style">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.icon-style" name="icon-style">
             <default>'REGULAR'</default>
             <summary>AppIcon icon style. REGULAR or SYMBOLIC</summary>
         </key>
@@ -344,7 +344,7 @@
             <default>(false, '%A, %B %d - %H∶%M')</default>
             <summary>Change the height of GNOME top panel</summary>
         </key>
-        <key enum="org.gnome.shell.extensions.aztaskbar.show-weather-by-clock" name="show-weather-by-clock">
+        <key enum="org.gnome.shell.extensions.windowtaskbar.show-weather-by-clock" name="show-weather-by-clock">
             <default>'OFF'</default>
             <summary>Show current weather by panel clock.</summary>
         </key>
