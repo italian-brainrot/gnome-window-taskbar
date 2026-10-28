@@ -103,24 +103,32 @@ class azTaskbarPanel extends St.Widget {
             centerOffset = 2 * (workArea.x - monitor.x) + workArea.width - monitor.width;
         }
 
-        const sideWidth = Math.max(0, (allocWidth - centerWidth + centerOffset) / 2);
+        // aztaskbar keeps the two side boxes the same width, which centers the
+        // center box. That caps the taskbar at half the panel, and an ungrouped
+        // window list with titles wants more than that: the side a box does not
+        // need is handed to the other one, so the taskbar only stops short of the
+        // space the status area (clock, indicators, app menu) takes.
+        const symmetricWidth = Math.max(0, (allocWidth - centerWidth + centerOffset) / 2);
+        const room = Math.max(0, allocWidth - centerWidth - rightNaturalWidth);
+        const leftWidth = Math.min(Math.max(symmetricWidth, leftNaturalWidth), room);
+        const roomRight = Math.max(0, allocWidth - centerWidth - leftNaturalWidth);
+        const rightWidth = Math.min(Math.max(symmetricWidth, rightNaturalWidth), roomRight);
+        const centerLeft = Math.max(Math.ceil(symmetricWidth), leftWidth);
 
         const childBox = new Clutter.ActorBox();
 
         childBox.y1 = 0;
         childBox.y2 = allocHeight;
         if (this.get_text_direction() === Clutter.TextDirection.RTL) {
-            childBox.x1 = Math.max(allocWidth - Math.min(Math.floor(sideWidth),
-                leftNaturalWidth), 0);
+            childBox.x1 = Math.max(allocWidth - leftWidth, 0);
             childBox.x2 = allocWidth;
         } else {
             childBox.x1 = 0;
-            childBox.x2 = Math.min(Math.floor(sideWidth),
-                leftNaturalWidth);
+            childBox.x2 = leftWidth;
         }
         this._leftBox.allocate(childBox);
 
-        childBox.x1 = Math.ceil(sideWidth);
+        childBox.x1 = centerLeft;
         childBox.y1 = 0;
         childBox.x2 = childBox.x1 + centerWidth;
         childBox.y2 = allocHeight;
@@ -130,11 +138,9 @@ class azTaskbarPanel extends St.Widget {
         childBox.y2 = allocHeight;
         if (this.get_text_direction() === Clutter.TextDirection.RTL) {
             childBox.x1 = 0;
-            childBox.x2 = Math.min(Math.floor(sideWidth),
-                rightNaturalWidth);
+            childBox.x2 = rightWidth;
         } else {
-            childBox.x1 = Math.max(allocWidth - Math.min(Math.floor(sideWidth),
-                rightNaturalWidth), 0);
+            childBox.x1 = Math.max(allocWidth - rightWidth, 0);
             childBox.x2 = allocWidth;
         }
         this._rightBox.allocate(childBox);
