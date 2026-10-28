@@ -1134,6 +1134,25 @@ export class AppIcon extends BaseButton {
             return;
         }
 
+        // Fork: favourites are launcher buttons, a click always opens a new
+        // window instead of cycling the app's windows.
+        if (this.isFavorite && TaskbarManager.settings.get_boolean('favorites-always-new-window')) {
+            const windows = this.getInterestingWindows();
+
+            if (this.app.can_open_new_window()) {
+                const isMinimized = false;
+                this._animateAppIcon(isMinimized);
+                this.app.open_new_window(-1);
+            } else if (windows.length) {
+                Main.activateWindow(windows[0]);
+            } else {
+                const isMinimized = false;
+                this._animateAppIcon(isMinimized);
+                this.app.activate();
+            }
+            return;
+        }
+
         let clickAction;
 
         if (isMiddleButton) {

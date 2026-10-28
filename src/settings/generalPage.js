@@ -168,8 +168,23 @@ class AzTaskbarGeneralPage extends Adw.PreferencesPage {
         favsOnAllMonitorsRow.add_suffix(favsOnAllMonitorsSwitch);
         favoritesRow.add_row(favsOnAllMonitorsRow);
 
+        const alwaysNewWindowSwitch = new Gtk.Switch({
+            valign: Gtk.Align.CENTER,
+            active: this._settings.get_boolean('favorites-always-new-window'),
+        });
+        const alwaysNewWindowRow = new Adw.ActionRow({
+            title: _('Always Open a New Window on Click'),
+            subtitle: _('Favourite icons launch instead of cycling windows'),
+            activatable_widget: alwaysNewWindowSwitch,
+        });
+        alwaysNewWindowSwitch.connect('notify::active', widget => {
+            this._settings.set_boolean('favorites-always-new-window', widget.get_active());
+        });
+        alwaysNewWindowRow.add_suffix(alwaysNewWindowSwitch);
+        favoritesRow.add_row(alwaysNewWindowRow);
+
         const runningAppsRow = new Adw.ExpanderRow({
-            title: _('Show Running Apps'),
+            title: _('Show Open Windows (ungrouped)'),
             show_enable_switch: true,
             expanded: false,
             enable_expansion: this._settings.get_boolean('show-running-apps'),
@@ -387,6 +402,96 @@ class AzTaskbarGeneralPage extends Adw.PreferencesPage {
         });
         indicatorFocusedRow.add_suffix(indicatorFocusedColorButton);
         indicatorGroup.add(indicatorFocusedRow);
+
+        const windowButtonsGroup = new Adw.PreferencesGroup({
+            title: _('Window Buttons'),
+            description: _('Every open window gets its own button, with its title. '
+                         + 'Windows of the same application are never grouped.'),
+        });
+        this.add(windowButtonsGroup);
+
+        const windowLabelsSwitch = new Gtk.Switch({
+            valign: Gtk.Align.CENTER,
+            active: this._settings.get_boolean('window-labels'),
+        });
+        const windowLabelsRow = new Adw.ActionRow({
+            title: _('Show Window Titles'),
+            activatable_widget: windowLabelsSwitch,
+        });
+        windowLabelsSwitch.connect('notify::active', widget => {
+            this._settings.set_boolean('window-labels', widget.get_active());
+        });
+        windowLabelsRow.add_suffix(windowLabelsSwitch);
+        windowButtonsGroup.add(windowLabelsRow);
+
+        const windowIconsSwitch = new Gtk.Switch({
+            valign: Gtk.Align.CENTER,
+            active: this._settings.get_boolean('window-button-icons'),
+        });
+        const windowIconsRow = new Adw.ActionRow({
+            title: _('Show Window Icons'),
+            activatable_widget: windowIconsSwitch,
+        });
+        windowIconsSwitch.connect('notify::active', widget => {
+            this._settings.set_boolean('window-button-icons', widget.get_active());
+        });
+        windowIconsRow.add_suffix(windowIconsSwitch);
+        windowButtonsGroup.add(windowIconsRow);
+
+        const windowButtonWidthSpinButton = new Gtk.SpinButton({
+            adjustment: new Gtk.Adjustment({
+                lower: 0, upper: 1000, step_increment: 10, page_increment: 20, page_size: 0,
+            }),
+            climb_rate: 1,
+            digits: 0,
+            numeric: true,
+            valign: Gtk.Align.CENTER,
+        });
+        windowButtonWidthSpinButton.set_value(this._settings.get_int('window-button-width'));
+        windowButtonWidthSpinButton.connect('value-changed', widget => {
+            this._settings.set_int('window-button-width', widget.get_value());
+        });
+        const windowButtonWidthRow = new Adw.ActionRow({
+            title: _('Window Button Width'),
+            subtitle: _('0 means the button is as wide as its title'),
+            activatable_widget: windowButtonWidthSpinButton,
+        });
+        windowButtonWidthRow.add_suffix(windowButtonWidthSpinButton);
+        windowButtonsGroup.add(windowButtonWidthRow);
+
+        const windowLabelFontSpinButton = new Gtk.SpinButton({
+            adjustment: new Gtk.Adjustment({
+                lower: 0, upper: 48, step_increment: 1, page_increment: 4, page_size: 0,
+            }),
+            climb_rate: 1,
+            digits: 0,
+            numeric: true,
+            valign: Gtk.Align.CENTER,
+        });
+        windowLabelFontSpinButton.set_value(this._settings.get_int('window-label-font-size'));
+        windowLabelFontSpinButton.connect('value-changed', widget => {
+            this._settings.set_int('window-label-font-size', widget.get_value());
+        });
+        const windowLabelFontRow = new Adw.ActionRow({
+            title: _('Window Title Font Size'),
+            subtitle: _('0 uses the panel default size'),
+            activatable_widget: windowLabelFontSpinButton,
+        });
+        windowLabelFontRow.add_suffix(windowLabelFontSpinButton);
+        windowButtonsGroup.add(windowLabelFontRow);
+
+        const closeOnMiddleSwitch = new Gtk.Switch({
+            valign: Gtk.Align.CENTER,
+            active: true,
+            sensitive: false,
+        });
+        const closeOnMiddleRow = new Adw.ActionRow({
+            title: _('Close With Middle Click or Shift+Click'),
+            subtitle: _('Right click opens the window menu, scroll wheel cycles the windows'),
+        });
+        closeOnMiddleRow.add_suffix(closeOnMiddleSwitch);
+        windowButtonsGroup.add(closeOnMiddleRow);
+
 
         const badgesGroup = new Adw.PreferencesGroup({
             title: _('App Icon Badges'),

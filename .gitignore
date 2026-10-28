@@ -1,3 +1,2 @@
-/dist/
-/schemas/gschemas.compiled
-*.src.gresource
+dist/
+src/schemas/gschemas.compiled

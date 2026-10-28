@@ -67,3 +67,20 @@
 .azTaskbar-bottom-panel .popup-menu.panel-menu{
     margin-bottom: 0;
 }
+/* Window buttons: one button per window, ungrouped, with the window title.
+   The look follows azTaskbar-BaseIcon / panel-button on purpose, so the
+   favourites and the window list keep the same visuals. */
+.azTaskbar-window-list {
+  padding-left: 6px;
+  margin-left: 2px;
+  border-left: 1px solid rgba(128, 128, 128, 0.4);
+}
+
+.azTaskbar-window-button {
+  min-width: 18px;
+  border-radius: 5px;
+}
+
+.azTaskbar-window-button .window-button-label {
+  text-align: left;
+}

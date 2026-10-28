@@ -136,7 +136,7 @@
             <summary>Intellihide enable start delay</summary>
         </key>
         <key enum="org.gnome.shell.extensions.windowtaskbar.panel-location" name="panel-location">
-            <default>'TOP'</default>
+            <default>'BOTTOM'</default>
             <summary>Panel location. TOP or BOTTOM</summary>
         </key>
         <key type="b" name="isolate-monitors">
@@ -152,12 +152,32 @@
             <summary>Always show App Icon notification bagdes, even when 'Do Not Disturb' is on</summary>
         </key>
         <key type="b" name="show-panel-activities-button">
-            <default>true</default>
+            <default>false</default>
             <summary>Show/Hide the activities button in panel</summary>
         </key>
         <key type="b" name="show-running-apps">
             <default>true</default>
-            <summary>Show/Hide running apps icons</summary>
+            <summary>Show/Hide the list of open windows (one button per window, no grouping)</summary>
+        </key>
+        <key type="b" name="window-labels">
+            <default>true</default>
+            <summary>Show the window title on the window buttons</summary>
+        </key>
+        <key type="b" name="window-button-icons">
+            <default>true</default>
+            <summary>Show the window icon on the window buttons</summary>
+        </key>
+        <key type="i" name="window-button-width">
+            <default>220</default>
+            <summary>Width of every window button in px. 0 = the button is as wide as its title</summary>
+        </key>
+        <key type="i" name="window-label-font-size">
+            <default>0</default>
+            <summary>Font size of the window title in px. 0 = the panel default</summary>
+        </key>
+        <key type="b" name="favorites-always-new-window">
+            <default>true</default>
+            <summary>A favourite AppIcon click always opens a new window, even when the app is running</summary>
         </key>
         <key type="b" name="favorites">
             <default>true</default>
@@ -168,7 +188,7 @@
             <summary>Show GNOME favorites as AppIcons on all monitors</summary>
         </key>
         <key type="(bi)" name="show-apps-button">
-            <default>(false, 0)</default>
+            <default>(true, 0)</default>
             <summary>Enable a Show Apps Button. 0 = left, 1 = right</summary>
         </key>
         <key type="b" name="window-previews">
@@ -285,7 +305,7 @@
             <summary>Show tool-tips for AppIcons</summary>
         </key>
         <key type="i" name="icon-size">
-            <default>26</default>
+            <default>20</default>
             <summary>Icon size for the AppIcons</summary>
         </key>
         <key type="i" name="icon-padding-horizontal">

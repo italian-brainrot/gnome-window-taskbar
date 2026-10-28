@@ -12,6 +12,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {PopupAnimation} from 'resource:///org/gnome/shell/ui/boxpointer.js';
 
 import {AppIcon, ShowAppsIcon} from './appIcon.js';
+import {WindowsList} from './windowButtons.js';
 import * as Utils from './utils.js';
 import {TaskbarManager} from './taskbarManager.js';
 import {WindowPreviewMenuManager} from './windowPreview.js';
@@ -78,6 +79,11 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
         this.mainBox.set_offscreen_redirect(Clutter.OffscreenRedirect.ALWAYS);
 
         Utils.addChildToParent(this, this.mainBox);
+
+        // Fork addition: one button per window, ungrouped, right after the
+        // favourite AppIcons. The grouped running-apps list is not used.
+        this.windowsList = new WindowsList(monitor);
+        Utils.addChildToParent(this.mainBox, this.windowsList);
 
         this._setConnections();
         // If AppIconsTaskbar position is moved in the main panel, updateIconGeometry
@@ -345,6 +351,8 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
                 });
             } else if (actor instanceof ShowAppsIcon) {
                 this.mainBox.remove_child(actor);
+            } else if (actor === this.windowsList) {
+                // the window list is permanent, it only moves position below
             } else {
                 this.mainBox.remove_child(actor);
                 actor.destroy();
@@ -355,7 +363,10 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
         const favsOnAllMonitors = TaskbarManager.settings.get_boolean('favorites-on-all-monitors');
         const isPrimaryMonitor = monitorIndex === Main.layoutManager.primaryIndex;
         const panelsOnAllMonitors = TaskbarManager.settings.get_boolean('panel-on-all-monitors');
-        const showRunningApps = TaskbarManager.settings.get_boolean('show-running-apps');
+        // Fork: the grouped running-app list is replaced by WindowsList, so the
+        // AppIcons are favourites only. 'show-running-apps' now shows/hides the
+        // window list itself.
+        const showRunningApps = false;
         let showFavorites = TaskbarManager.settings.get_boolean('favorites');
         if (panelsOnAllMonitors && showFavorites)
             showFavorites = favsOnAllMonitors ? true : isPrimaryMonitor;
@@ -397,6 +408,8 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
             if (item.isSet)
                 item.updateAppIcon();
         }
+
+        this.mainBox.insert_child_at_index(this.windowsList, expectedAppsInfo.length);
 
         const [showAppsButton, showAppsButtonPosition] = TaskbarManager.settings.get_value('show-apps-button').deep_unpack();
         if (showAppsButton) {
@@ -533,6 +546,8 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
         this.endPointerWatch();
 
         this._clearConnections();
+        this.windowsList.destroy();
+        this.windowsList = null;
         this.showAppsIcon.destroy();
         this.appIconsCache.forEach((appIcon, appID) => {
             appIcon.stopAllAnimations();
