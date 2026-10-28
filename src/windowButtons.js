@@ -119,6 +119,12 @@ class WindowTaskbarIndicator extends St.DrawingArea {
     }
 });
 
+// The label width is the requested button width minus the icon and the padding
+// the button and its children add: .panel-button horizontal padding (2 x 8px),
+// the -3/-2/-5 margins of .window-button-icon / .window-button-label.
+const BUTTON_CHROME_WIDTH = 2 * 8 + 3 + 2 + 5;
+const MIN_LABEL_WIDTH = 24;
+
 const WindowButton = GObject.registerClass(
 class WindowTaskbarButton extends St.Button {
     _init(metaWindow, windowsList) {
@@ -151,6 +157,8 @@ class WindowTaskbarButton extends St.Button {
 
         this._label = new St.Label({
             y_align: Clutter.ActorAlign.CENTER,
+            x_align: Clutter.ActorAlign.FILL,
+            x_expand: true,
             style_class: 'window-button-label',
         });
         this._label.clutter_text.set_ellipsize(Pango.EllipsizeMode.MIDDLE);
@@ -248,13 +256,38 @@ class WindowTaskbarButton extends St.Button {
 
         this._label.visible = settings.get_boolean('window-labels');
 
-        const width = settings.get_int('window-button-width');
-        this._label.width = width > 0 ? width : -1;
+        // Clutter aborts the *whole shell* when a child's minimum width is
+        // bigger than its natural width ("ClutterBoxLayout child ... natural
+        // width: 140 < minimum 220"), so the requested width belongs on the
+        // label, where min <= natural always holds. The preference names the
+        // width of the whole button; the label gets what is left of that after
+        // the icon and the button's padding. width 0 = fit the title.
+        const requested = settings.get_int('window-button-width');
+        if (requested > 0) {
+            const iconWidth = settings.get_boolean('window-button-icons')
+                ? settings.get_int('icon-size')
+                : 0;
+            this._label.width = Math.max(MIN_LABEL_WIDTH,
+                requested - BUTTON_CHROME_WIDTH - iconWidth);
+        } else {
+            this._label.width = -1;
+        }
 
         const fontSize = settings.get_int('window-label-font-size');
         this._label.style = fontSize > 0 ? `font-size: ${fontSize}px;` : '';
 
         this._indicator.setPanelLocation(settings.get_enum('panel-location'));
+
+        // Clutter aborts the shell outright when a container is asked to fit a
+        // child whose minimum is bigger than its natural size, so the request
+        // is dropped before it can reach the layout.
+        const [minWidth, naturalWidth] = this._label.get_preferred_width(-1);
+        if (minWidth > naturalWidth) {
+            this._label.width = -1;
+            logWarning(`windowtaskbar: window-button-width ${requested} does not` +
+                `fit (min ${minWidth} > natural ${naturalWidth}), using the` +
+                `title's own width`);
+        }
     }
 
     _onClick() {

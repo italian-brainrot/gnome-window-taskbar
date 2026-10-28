@@ -58,7 +58,11 @@ function describeActor(actor, depth = 0, maxDepth = 6) {
     if (width) {
         node.minW = Math.round(width[0]);
         node.natW = Math.round(width[1]);
+        // A child whose minimum is larger than its natural size is not a
+        // warning Clutter tolerates: it asserts and takes the shell down.
+        node.violation = node.minW > node.natW;
     }
+    void Clutter;
 
     const children = actor.get_children?.() ?? [];
     if (children.length) {

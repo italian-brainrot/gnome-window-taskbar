@@ -60,6 +60,32 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
   restart the shell in place), so errors are read from the journal:
   `scripts/logs.sh`.
 
+## Size requests: these can kill the session
+
+A Clutter container that has to fit a child whose **minimum** size is bigger
+than its **natural** size does not warn politely: it asserts
+(`ClutterBoxLayout child ... natural width: 140 < minimum 220`) and the shell
+aborts with SIGABRT, taking the session with it - and the login after that
+starts with *every* user extension disabled, because mutter finds
+`gnome-shell-disable-extensions` in the runtime directory and sets
+`disable-user-extensions=true` in `org.gnome.shell`. A rejected property value
+(`value "-1" is invalid or out of range for property 'min-height'`) is the same
+class of mistake.
+
+* Do not set `min_width`/`min_height` on a taskbar child: the width asked for
+  by the preference goes to the label (`St.Label.width`), where min == natural
+  always holds. `WindowButton.updateStyle()` re-checks min <= natural after
+  applying it and drops the request when that does not hold.
+* `scripts/treeshow.py` marks an actor with `min > natural` in the dump, and
+  `scripts/hotreload.sh` greps the journal for those complaints right after a
+  reload and unloads the build again (writing `build/dev/FAILED`).
+* If a session ever comes back with all extensions off, that key is the switch:
+  `dconf write /org/gnome/shell/disable-user-extensions false` turns it off
+  live (the shell watches it), and the user's own `enabled-extensions` list is
+  left alone by the crash mitigation.
+* `insert_child_at_index` on an already parented child is only a warning and is
+  ignored, so the permanent window list is unparented before being re-inserted.
+
 ## Dev loop
 
 GNOME Shell 50.6 scans extension dirs **once, at session start**

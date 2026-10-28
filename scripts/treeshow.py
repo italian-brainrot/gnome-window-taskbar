@@ -19,6 +19,8 @@ def node(n, ind=0):
     line = (f"{'  ' * ind}{n['actor']}.{n['name']} [{n.get('classes')}] "
             f"{n['w']}x{n['h']} min/nat={n.get('minW')}/{n.get('natW')} "
             f"n={n.get('n', '-')}{txt}")
+    if n.get('violation'):
+        line += '   <== min > natural: this asserts and kills the session'
     print(line)
     for c in n.get('children', []):
         node(c, ind + 1)

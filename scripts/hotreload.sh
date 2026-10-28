@@ -28,6 +28,7 @@ if [[ ! -f $SHIM_DIR/extension.js ]]; then
     exit 1
 fi
 
+start_ts=$EPOCHSECONDS
 previous=$(cat "$CURRENT" 2>/dev/null || echo 0)
 iter=$((previous + 1))
 
@@ -105,6 +106,21 @@ for _ in {1..20}; do
     sleep 0.25
 done
 rm -f "$BUILD/dump.request"   # the new instance already answered it during enable
+
+# A wrong size request is not a warning the shell lives with: Clutter asserts
+# and takes the session down with it (that is how this shell crashed once
+# already). Check the log for those complaints, and unload the dev build again
+# when this iteration made the shell unhappy.
+complaints=$(HOST_EXEC journalctl --user --no-pager --since "@$start_ts" -q 2>/dev \
+    | grep -E "ClutterBoxLayout|Clutter-[A-Za-z]+: (([A-Za-z ]+: )?assertion|Code: )|invalid or out of range|clutter_[a-z_]+: assertion" \
+    | sed "s/^/  shell: /")
+if [[ -n $complaints ]]; then
+    echo "the shell complained about this build, disabling $DEV_UUID again:" >&2
+    echo "$complaints" >&2
+    HOST_EXEC gnome-extensions disable "$DEV_UUID" >/dev 2>&1 || true
+    echo "iter$iter" > "$BUILD/FAILED"
+    exit 1
+fi
 
 if [[ -f $BUILD/dump.json ]]; then
     echo "reloaded iter$iter, dumped state in build/dev/dump.json"

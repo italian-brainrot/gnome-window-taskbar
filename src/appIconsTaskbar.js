@@ -414,6 +414,11 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
                 item.updateAppIcon();
         }
 
+        // insert_child_at_index does not re-parent an attached child (Clutter
+        // warns and silently ignores the request), so the permanent window list
+        // is unparented before it is put back at its position.
+        if (this.windowsList.get_parent() === this.mainBox)
+            this.mainBox.remove_child(this.windowsList);
         this.mainBox.insert_child_at_index(this.windowsList, expectedAppsInfo.length);
 
         const [showAppsButton, showAppsButtonPosition] = TaskbarManager.settings.get_value('show-apps-button').deep_unpack();
