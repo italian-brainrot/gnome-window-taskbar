@@ -358,13 +358,22 @@ scripts/install.sh prefs      # the preferences window
 ```
 
 The install is a plain copy, never `gnome-extensions pack`: `pack` honours the
-repository's `.gitignore` and drops most of our files. What reloads the extension in
-the running shell is the `gnome-extensions disable`/`enable` pair - and there is
-deliberately no `ReloadExtension` D-Bus call in the script. When no
+repository's `.gitignore` and drops most of our files. The `gnome-extensions
+disable`/`enable` pair at the end of the script re-runs `disable()`/`enable()` in the
+running shell, which rebuilds the panel items - it does **not** load edited files,
+because the shell imports an extension's module once per session and the module cache
+answers for the rest of it (see the API note "An extension's code is imported once per
+shell session"). So an install takes effect at the next session start; the pair is what
+makes an *already loaded* extension rebuild itself with its new settings and
+stylesheet.
+
+There is deliberately no `ReloadExtension` D-Bus call in the script. When no
 `org.gnome.Shell.Extensions` instance is running, that call *activates* one, and the
 request lands on an instance that has not exported its interface yet: it answers
 `Missing handler for DBus method ReloadExtension`, and the reload never happens (the
-failure was hidden behind an `|| true` the whole time). Do not add it back.
+failure was hidden behind an `|| true` the whole time). Do not add it back - and even
+where it does answer, it unloads and loads the same cached module, so it can not pick
+up a code change either.
 
 The three steps by hand, on a machine that does not run this repository:
 

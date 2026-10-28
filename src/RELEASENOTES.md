@@ -1,3 +1,22 @@
+<b><span size="large">Window Taskbar 40.3 (fork)</span></b>
+
+- Window buttons: the row is sized from what the buttons actually ask for instead of
+  from a guess at what a button costs. The padding and the border are read off the
+  theme (the shell's own `#panel .panel-button` outranks our class), the list's own
+  padding, border and spacing are counted in, and the row's request is measured: if it
+  is more than the panel has, the titles give way to icons and, if a row of icons does
+  not fit either, the row stops at the last button there is room for. The clock, the
+  quick settings and the favourites stay on the monitor whatever the theme spends.
+- Window buttons: the room is worked out again when the panel's side boxes change size
+  on their own - the clock's text, another extension's tray icons - instead of only
+  when a window comes or goes.
+- Window buttons: a preference change no longer styles the buttons before the room is
+  re-worked out; the same pass does both, so the panel is never handed a row of
+  uncapped buttons in between.
+- Preferences: the spacing between taskbar items now reaches the window list as well
+  as the favourites (it used to be applied to the list only when the panel was
+  rebuilt).
+
 <b><span size="large">Window Taskbar 40.2 (fork)</span></b>
 
 - Window buttons: the blank tail that keeps the buttons from jumping is always the
