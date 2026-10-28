@@ -12,6 +12,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -19,6 +20,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 const BUILD = '/home/qq/distrobox/ubuntu/Projects/qwen-gnome-app-list/build/dev';
 const REQUEST = `${BUILD}/dump.request`;
 const RESULT = `${BUILD}/dump.json`;
+const SHOT_REQUEST = `${BUILD}/shot.request`;
+const SHOT_FILE = `${BUILD}/shot.png`;
 
 
 function actorName(actor) {
@@ -155,6 +158,31 @@ function windowListDump(list) {
     };
 }
 
+/**
+ * A screenshot without the D-Bus service, the permission prompt or a portal.
+ *
+ * `Shell.Screenshot` is the same capture path the shell's own screenshot UI
+ * uses; the shell promisifies its async methods when it loads that module,
+ * which always happens at session start. The D-Bus gate that refuses container
+ * clients does not apply here, and nothing is put on the clipboard or into the
+ * user's Pictures folder.
+ */
+async function takeScreenshot(path) {
+    const shooter = new Shell.Screenshot();
+    try {
+        const [content] = await shooter.screenshot_stage_to_content();
+        const texture = content.get_texture();
+        const stream = Gio.MemoryOutputStream.new_resizable();
+        await Shell.Screenshot.composite_to_stream(
+            texture, 0, 0, -1, -1, 1, null, 0, 0, 1, stream);
+        stream.close(null);
+        GLib.file_set_contents(path, stream.steal_as_bytes().get_data());
+        log(`windowtaskbar-dev: shot -> ${path}`);
+    } finally {
+        shooter.destroy?.();
+    }
+}
+
 export function dump(ext) {
     const panelManagers = collectManagers(ext).map(entry => {
         const manager = entry.value;
@@ -226,14 +254,49 @@ export function dump(ext) {
         `${windows?.length ?? 0} windows -> ${RESULT}`);
 }
 
+/**
+ * Dev-only tidying. An enable that threw halfway earlier (or an older iteration
+ * whose instance is gone) can leave its actors in the panel, and those stale
+ * actors then take space and steal window buttons. Iteration classes are named
+ * after the build, so anything from an older iter number is fair game to drop.
+ */
+function removeStaleIterationActors() {
+    const iter = Number(import.meta.url.match(/\/iter(\d+)\//)?.[1] ?? 0);
+    const boxes = [Main.panel._leftBox, Main.panel._centerBox, Main.panel._rightBox];
+    const stale = [];
+
+    for (const box of boxes) {
+        for (const child of box.get_children()) {
+            // renamed classes carry the build number as a suffix: 'WindowTaskbarButton_43'
+            const match = /_(\d+)$/.exec(child.constructor?.name ?? '');
+            const found = match ? Number(match[1]) : NaN;
+            if (Number.isFinite(found) && found < iter)
+                stale.push(child);
+        }
+    }
+
+    stale.forEach(actor => {
+        log(`windowtaskbar-dev: removing stale actor from an older build: ${actor.constructor?.name}`);
+        actor.destroy();
+    });
+    return stale.length;
+}
+
 /** Watch dump.request in the build directory and answer it. */
 export function attach(ext) {
+    removeStaleIterationActors();
+
     const dir = Gio.File.new_for_path(BUILD);
     const monitor = dir.monitor_directory(Gio.FileMonitorFlags.NONE, null);
     // Gio.File has get_basename(), and a directory monitor hands us the child
     // that changed: only our request file is interesting.
     const onEvent = (_f, file) => {
-        if (file?.get_basename?.() !== 'dump.request')
+        const name = file?.get_basename?.();
+        if (name === 'shot.request') {
+            takeScreenshot(SHOT_FILE).catch(e => logError(e, 'windowtaskbar-dev: shot failed'));
+            return;
+        }
+        if (name !== 'dump.request')
             return;
         try {
             dump(ext);
@@ -247,6 +310,9 @@ export function attach(ext) {
     const request = Gio.File.new_for_path(REQUEST);
     if (request.query_exists(null))
         onEvent(null, request);
+    const shot = Gio.File.new_for_path(SHOT_REQUEST);
+    if (shot.query_exists(null))
+        onEvent(null, shot);
 
     return () => monitor.cancel?.();
 }

@@ -44,7 +44,19 @@ export default class WindowTaskbarDevLoader extends Extension {
         try {
             const module = await import(`file://${dir.get_path()}/extension.js`);
             this._inner = new module.default(metadata);
-            await this._inner.enable();
+            try {
+                await this._inner.enable();
+            } catch (e) {
+                // A half-built instance would leave actors in the panel and the
+                // next enable would then refuse (GType/module reuse), so clean up
+                // before rethrowing.
+                try {
+                    this._inner.disable();
+                } catch (e2) {
+                    logError(e2, 'windowtaskbar-dev: cleanup after failed enable');
+                }
+                throw e;
+            }
             log(`windowtaskbar-dev: loaded build iter${iter} from ${dir.get_path()}`);
         } catch (e) {
             logError(e, `windowtaskbar-dev: iter${iter} failed to load`);
