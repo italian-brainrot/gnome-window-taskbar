@@ -38,6 +38,10 @@ const BUTTON_CHROME_WIDTH = 24;
 
 // Clutter.button-event button numbers; St.Button itself has no get_button().
 const BUTTON_PRIMARY = 1;
+
+// 'no limit' for Clutter's min-/max-width properties, which refuse a negative value
+// (and are a gfloat, so anything beyond 3.4e38 overflows and lands as Infinity)
+const NO_LIMIT = 1e30;
 const BUTTON_MIDDLE = 2;
 const BUTTON_SECONDARY = 3;
 
@@ -281,7 +285,19 @@ class WindowTaskbarButton extends St.Button {
             this._root.add_child(this._indicator);
     }
 
-    /** @param {number=} widthCap - room per button, see WindowsList._shareRoom */
+    /**
+     * The width preference is a *maximum*: the button takes the title's own
+     * width, capped there, and shrinks with the panel when the taskbar is full
+     * (the title is then ellipsized at the end). 0 means no cap.
+     *
+     * What the label never gets is a minimum. Clutter aborts the whole shell when
+     * a box child asks for more than it can get, and a title that has ellipsized
+     * down to just the ellipsis has a natural width of some 17px, smaller than any
+     * sensible minimum - the abort line was "natural width: 17 < minimum 24", and
+     * it cost the session its login. So only max_width is set here, never < 0.
+     *
+     * @param {number=} widthCap - room per button, see WindowsList._shareRoom
+     */
     updateStyle(widthCap = null) {
         const settings = this._settings;
 
@@ -290,41 +306,30 @@ class WindowTaskbarButton extends St.Button {
 
         this._label.visible = settings.get_boolean('window-labels');
 
-        // The width preference is a *maximum*: the button takes the title's own
-        // width, capped there, and shrinks with the panel when the taskbar is
-        // full (the title is ellipsized in the middle). 0 = no cap.
-        //
-        // Clutter aborts the *whole shell* when a child's minimum width is
-        // bigger than its natural width ("ClutterBoxLayout child ... natural
-        // width: 140 < minimum 220"), so this only ever touches max_width and
-        // min_width, where min <= natural is what always holds.
         const requested = widthCap ?? settings.get_int('window-button-width');
-        this._label.min_width = MIN_LABEL_WIDTH;
-        this._label.max_width = -1;
+        // Clutter's min-/max-width properties take no negative value (setting -1
+        // gets a GObject warning and nothing at all happens), so "no limit" is
+        // done with the biggest float the property accepts.
+        this._label.min_width = 0;
+        this._label.max_width = NO_LIMIT;
         if (requested > 0) {
             const iconWidth = settings.get_boolean('window-button-icons')
                 ? settings.get_int('icon-size')
                 : 0;
+            // the floor is only ever a maximum (max_width), so it is safe
             this._label.max_width = Math.max(MIN_LABEL_WIDTH,
                 requested - BUTTON_CHROME_WIDTH - iconWidth);
         }
 
+        // the font size comes as a style; the width cap is the max_width property,
+        // which is what keeps the button's width to the title's own (a CSS
+        // max-width would fix the label's natural size, and uniform buttons are
+        // not what was asked for)
         const fontSize = settings.get_int('window-label-font-size');
         this._label.style = fontSize > 0 ? `font-size: ${fontSize}px;` : '';
 
         this._indicator.setIndicatorLocation(settings.get_enum('indicator-location'));
         this._setIndicatorOrder();
-
-        // Clutter aborts the shell outright when a container is asked to fit a
-        // child whose minimum is bigger than its natural size, so the request
-        // is dropped before it can reach the layout.
-        const [minWidth, naturalWidth] = this.get_preferred_width(-1);
-        if (minWidth > naturalWidth) {
-            this._label.min_width = -1;
-            this._label.max_width = -1;
-            logWarning(`windowtaskbar: window-button-width ${requested} does not` +
-                `fit (min ${minWidth} > natural ${naturalWidth}), dropping it`);
-        }
     }
 
     _onClick() {
@@ -534,9 +539,12 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      * exactly the space between the favourites and the status area, so the window
      * list lives there - it may be as wide as twice the widest side box leaves over.
      */
-    /** The panel this actor sits in (works for the shell's panel and aztaskbar's own). */
-    _panelAncestor() {
-        let node = this.get_parent();
+    /**
+     * The panel this actor sits in, or the one `via` sits in for as long as the
+     * list has no parent of its own (works for the shell's panel and the fork's).
+     */
+    _panelAncestor(via = null) {
+        let node = this.get_parent() ?? via;
         while (node && !(node._leftBox && node._centerBox && node._rightBox))
             node = node.get_parent();
         return node;
@@ -547,8 +555,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         return sizes ? Math.round(sizes[1]) : 0;
     }
 
-    _placeInPanel() {
-        const centerBox = this._panelAncestor()?._centerBox;
+    _placeInPanel(via = null) {
+        const centerBox = this._panelAncestor(via)?._centerBox;
         if (!centerBox || this.get_parent() === centerBox)
             return false;
 
@@ -600,10 +608,13 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             return;
         }
 
-        // the spacer's own request is part of the measured natural width
+        // the spacer's own request is part of the measured natural width, so it is
+        // counted in what the list asks for; it gets a fixed width rather than a
+        // minimum, because a child with a minimum and no natural size of its own is
+        // exactly what Clutter refuses to fit in a box
         const withoutSpacer = this._naturalWidth(this) - this._naturalWidth(this._spacer);
         this._spacer.visible = true;
-        this._spacer.style = `min-width: ${Math.max(0, room - withoutSpacer)}px;`;
+        this._spacer.style = `width: ${Math.max(0, room - withoutSpacer)}px;`;
     }
 
     /** Windows belonging on this monitor's taskbar, in creation order. */
