@@ -22,6 +22,7 @@ const REQUEST = `${BUILD}/dump.request`;
 const RESULT = `${BUILD}/dump.json`;
 const SHOT_REQUEST = `${BUILD}/shot.request`;
 const SHOT_FILE = `${BUILD}/shot.png`;
+const CLICK_REQUEST = `${BUILD}/click.request`;
 
 
 function actorName(actor) {
@@ -183,6 +184,73 @@ async function takeScreenshot(path) {
     }
 }
 
+/**
+ * Dev-only: drive a window button the way a click would, and report the state
+ * change. Mouse events cannot be injected into the shell (XWayland input only
+ * reaches X clients), so the handler is called directly: that exercises the
+ * whole click chain, including the menu, without any pointer.
+ *
+ * The request file holds a JSON body: {title: 'substring', action: 'click'|'activate'|'menu'}
+ */
+async function clickButton(ext) {
+    const [, raw] = GLib.file_get_contents(CLICK_REQUEST);
+    const request = JSON.parse(new TextDecoder().decode(raw));
+    const list = collectManagers(ext)
+        .map(e => (e.value.appIconsTaskbar ?? e.value._appIconsTaskbar)?.windowsList)
+        .find(l => l);
+    if (!list)
+        throw new Error('no window list to click in');
+
+    // _buttons is a Map of metaWindow -> button, so the window comes with it
+    const entries = list._buttons instanceof Map ? [...list._buttons.entries()] : [...list._buttons];
+    const found = entries.find(([w]) => (w.get_title?.() ?? '').includes(request.title ?? ''));
+    const button = found ? found[1] : null;
+    if (!button)
+        throw new Error(`no window button matching ${JSON.stringify(request.title)}`);
+
+    const metaWindow = found ? found[0] : button.metaWindow;
+    const before = {
+        title: metaWindow.get_title(),
+        focused: metaWindow.has_focus(),
+        minimized: metaWindow.minimized,
+        monitor: metaWindow.get_monitor(),
+    };
+
+    switch (request.action) {
+    case 'activate':
+        button._activate();
+        break;
+    case 'menu':
+        button._popupMenu();
+        Main.panel.menuManager.closeMenu?.();
+        break;
+    default:
+        button._onClick();
+        break;
+    }
+
+    // give the window manager a moment to react (activate/unminimize are async)
+    await new Promise(resolve => {
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+            resolve();
+            return GLib.SOURCE_REMOVE;
+        });
+    });
+
+    const result = {
+        clicked: before,
+        after: {
+            title: metaWindow.get_title(),
+            focused: metaWindow.has_focus(),
+            minimized: metaWindow.minimized,
+            stable: metaWindow.get_stable_sequence(),
+        },
+        focusedWindow: global.display.focus_window?.get_title?.() ?? null,
+    };
+    GLib.file_set_contents(`${BUILD}/click.json`, `${JSON.stringify(result, null, 4)}\n`);
+    log(`windowtaskbar-dev: clicked '${before.title}' -> focused=${result.after.focused}`);
+}
+
 export function dump(ext) {
     const panelManagers = collectManagers(ext).map(entry => {
         const manager = entry.value;
@@ -292,6 +360,10 @@ export function attach(ext) {
     // that changed: only our request file is interesting.
     const onEvent = (_f, file) => {
         const name = file?.get_basename?.();
+        if (name === 'click.request') {
+            clickButton(ext).catch(e => logError(e, 'windowtaskbar-dev: click failed'));
+            return;
+        }
         if (name === 'shot.request') {
             takeScreenshot(SHOT_FILE).catch(e => logError(e, 'windowtaskbar-dev: shot failed'));
             return;
@@ -310,6 +382,9 @@ export function attach(ext) {
     const request = Gio.File.new_for_path(REQUEST);
     if (request.query_exists(null))
         onEvent(null, request);
+    const click = Gio.File.new_for_path(CLICK_REQUEST);
+    if (click.query_exists(null))
+        onEvent(null, click);
     const shot = Gio.File.new_for_path(SHOT_REQUEST);
     if (shot.query_exists(null))
         onEvent(null, shot);

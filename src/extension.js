@@ -243,8 +243,10 @@ export default class AzTaskbar extends Extension {
             // hidden state has to be pushed back every time it happens.
             if (!activities._windowTaskbarShowId) {
                 activities._windowTaskbarShowId = activities.container.connect('show', () => {
-                    if (!this.settings.get_boolean('show-panel-activities-button'))
-                        activities.container.hide();
+                    // the handler also fires while the instance is being torn down
+                    if (!this.settings || this.settings.get_boolean('show-panel-activities-button'))
+                        return;
+                    activities.container.hide();
                 });
             }
         });
