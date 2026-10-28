@@ -635,13 +635,28 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         return true;
     }
 
-    /** See _placeInPanel: the width the centre box may take. */
+    /**
+     * See _placeInPanel: the width the centre box may take.
+     *
+     * Asking the panel that does the allocating is the point: there are two
+     * panels and they allocate differently. The shell's own (the primary monitor,
+     * where the fork does not build a panel) keeps the left and right boxes the
+     * same width so that the centre box stays centred, and the fork's own panel
+     * (panel.js, every other monitor) hands the room one side does not use to the
+     * side that does. Guessing the symmetric formula on the asymmetric panel
+     * sizes the list to something other than what it is given, and the panel then
+     * clips the favourites instead of the titles, because it hands a side box less
+     * than that box insists on keeping.
+     */
     _roomWidth() {
         const panel = this._panelAncestor();
         const monitor = Main.layoutManager.findMonitorForActor(this) ??
             Main.layoutManager.primaryMonitor;
         if (!panel || !monitor)
             return -1;
+
+        if (panel.centerBoxRoom)
+            return panel.centerBoxRoom(this);
 
         const side = Math.max(
             this._naturalWidth(panel._leftBox),

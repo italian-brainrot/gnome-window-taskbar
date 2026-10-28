@@ -146,6 +146,39 @@ class azTaskbarPanel extends St.Widget {
         this._rightBox.allocate(childBox);
     }
 
+    /**
+     * How much width this panel can hand to its centre box, for the benefit of
+     * the window list (see WindowsList._roomWidth), which has to know the room
+     * the allocation will really give it rather than guess a symmetric one.
+     *
+     * The allocation above keeps a side box at least as wide as that box asks
+     * for, and gives the centre box exactly its natural width: so the room the
+     * centre box may fill is what the two side boxes are not using, less what
+     * else the centre box holds besides `child` - the date menu lives in this
+     * panel's centre box, and it is not something the window list is allowed to
+     * push off the monitor.
+     *
+     * The shell's own panel (the primary monitor, which this fork does not
+     * build) does not allocate this way: it keeps both side boxes the same width
+     * for the sake of the centred clock, and the window list says so over there.
+     */
+    centerBoxRoom(child) {
+        const allocWidth = this.monitor ? this.monitor.width : this.width;
+        if (!allocWidth)
+            return -1;
+
+        const [, leftNatural] = this._leftBox.get_preferred_width(-1);
+        const [, rightNatural] = this._rightBox.get_preferred_width(-1);
+        const [, centerNatural] = this._centerBox.get_preferred_width(-1);
+
+        // the centre box's own request counts this list in; only the rest of it
+        // (the date menu, on this panel) may be added to what the list asks for
+        const [, childNatural] = child?.get_preferred_width(-1) ?? [0, 0];
+        const otherInCenter = Math.max(0, centerNatural - childNatural);
+
+        return Math.max(0, Math.floor(allocWidth - leftNatural - rightNatural - otherInCenter));
+    }
+
     _tryDragWindow(event) {
         if (Main.modalCount > 0)
             return Clutter.EVENT_PROPAGATE;
