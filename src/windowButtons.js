@@ -73,8 +73,12 @@ class WindowTaskbarIndicator extends St.DrawingArea {
             : [null, null];
         const useAccent = settings.get_boolean('indicator-color-use-system-accent-color');
 
-        if (useAccent && foregroundColor)
-            return this._button.focused ? colorToString(fgAccentColor) : colorToString(foregroundColor);
+        // same pairing as aztaskbar: accent colour for the focused window,
+        // the accent's foreground colour for a plain open one
+        if (useAccent && accentColor && foregroundColor) {
+            const [focusedColor, runningColor] = [colorToString(accentColor), colorToString(foregroundColor)];
+            return this._button.focused ? focusedColor : runningColor;
+        }
 
         return this._button.focused
             ? settings.get_string('indicator-color-focused')
