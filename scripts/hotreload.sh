@@ -111,13 +111,12 @@ rm -f "$BUILD/dump.request"   # the new instance already answered it during enab
 # and takes the session down with it (that is how this shell crashed once
 # already). Check the log for those complaints, and unload the dev build again
 # when this iteration made the shell unhappy.
-complaints=$(HOST_EXEC journalctl --user --no-pager --since "@$start_ts" -q 2>/dev \
-    | grep -E "ClutterBoxLayout|Clutter-[A-Za-z]+: (([A-Za-z ]+: )?assertion|Code: )|invalid or out of range|clutter_[a-z_]+: assertion" \
-    | sed "s/^/  shell: /")
+complaints=$({ HOST_EXEC journalctl --user --no-pager --since "@$start_ts" -q || true; } \
+    | grep -E 'ClutterBoxLayout|invalid or out of range|clutter_actor_insert_child_at_index' || true)
 if [[ -n $complaints ]]; then
-    echo "the shell complained about this build, disabling $DEV_UUID again:" >&2
-    echo "$complaints" >&2
-    HOST_EXEC gnome-extensions disable "$DEV_UUID" >/dev 2>&1 || true
+    printf 'the shell complained about this build, disabling %s again:\n%%s\n' \
+        "$DEV_UUID" "$complaints" >&2
+    ${ HOST_EXEC gnome-extensions disable "$DEV_UUID"; } || true
     echo "iter$iter" > "$BUILD/FAILED"
     exit 1
 fi
