@@ -86,7 +86,8 @@
      so that every row of the panel band is a row of the button. A box that asks
      for more height than the panel has is not shrunk by Clutter - it honours the
      child's minimum and hands it more - so a title line plus the indicator strip
-     (which is what tips a button with a title over the panel's height) hangs the
+     (which is what used to tip a button with a title over the panel's height, before
+     titled buttons gave the strip up: see WindowButton._showsIndicator) hangs the
      button off the bottom of the screen: the running/focused dash lands off the
      visible band, and the rows of the band the button stops covering are presses
      on the panel itself, which GNOME 50's panel answers by grabbing the window

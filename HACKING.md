@@ -14,14 +14,16 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
    removed (it asks for aztaskbar releases, which is meaningless for a fork), and the
    keys that went with it (`update-notifier-*`) out of the schema - along with
    `multi-window-indicator`, the boolean that switched the running/focused dash on:
-   the fork always shows that dash on the window buttons, and only its style
-   (`multi-window-indicator-style`) is a choice. Keys are dropped rather than left
-   unused, because a prefs page full of options that do nothing is worse than a
-   stale dconf entry.
+   the fork shows that dash on a window button only once the button has no title to
+   show (`WindowButton._showsIndicator` - see "The titled button wears no dash"), and
+   only its style (`multi-window-indicator-style`) is a choice. Keys are dropped rather
+   than left unused, because a prefs page full of options that do nothing is worse than
+   a stale dconf entry.
 2. **No grouping + window titles** (`windowButtons.js`): a `WindowsList`
    (`St.BoxLayout`) lives inside aztaskbar's `mainBox`, inserted right after the
    favourite `AppIcon`s. Every window on the current workspace (also minimized
-   ones) gets one button: window icon + title + the aztaskbar indicator dash.
+   ones) gets one button: window icon + title, and the aztaskbar indicator dash only
+   once the titles have given way to icons.
    `appIconsTaskbar._redisplay()` is patched so the list survives a redisplay and
    the grouped "running apps" list is skipped (`showRunningApps` forced to false;
    the `show-running-apps` key now shows/hides the window list instead).
@@ -44,6 +46,9 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
   moved
 * room: the titles give way to icons when the panel has no room for them, and the
   list never asks for more than the panel has - see "When the panel runs out of room"
+* the running/focused dash is **not** drawn under a button that shows a title - see
+  "The titled button wears no dash"; the favourites keep theirs, and an icon-only
+  window button wears one like a favourite does
 
 ## New gsettings keys
 
@@ -391,7 +396,9 @@ Both halves of the fix are needed - the stylesheet alone leaves the request over
   button more than the band), and the indicator strip takes what that leaves:
   `INDICATOR_HEIGHT` when the band can pay for it, less when it cannot, hidden below
   `INDICATOR_MIN_HEIGHT` (the radius the dash is drawn with; below that it is not a dash,
-  and an invisible child asks for nothing).
+  and an invisible child asks for nothing). That arithmetic is what is left of the pass
+  once the titled button's strip is gone for good (see "The titled button wears no
+  dash"): what is budgeted here now is one icon and a dash.
 
 With the button's minimum under the band, the box's FILL alignment gives it the band and
 nothing more: every row of the band is a row of the button, nothing hangs off the screen,
@@ -409,9 +416,45 @@ whatever the band leaves once the title has its line.
 * `main-panel-height` is now one of the keys that redisplay the list: the panel changing
   its own height is not a change in the measured *room width*, so `_watchPanelRoom` would
   never notice it and the buttons would keep a strip sized for the old height;
-* check it by eye: the dash should be visible at the bottom of the button, inside the
-  panel, and the title should be about on the middle line of the band rather than below
-  it.
+* check it by eye: an icon-only button's dash should be visible at the bottom of the
+  button, inside the panel, and a title should sit on the middle line of the band.
+
+## The titled button wears no dash
+
+The dash answers "is this application running?". Under a *favourite* that is a real
+question and the answer is worth a pixel strip; under a button that names a window it is
+not a question at all - the button exists because that window is open. What the strip
+really cost was a slice of the panel's height out of the band the title's line lives in
+(`_fitVertical` hands it `room - rowHeight`), which is how a title came to sit ~4 px
+above the middle of the panel instead of on it: on the 2.2em band the strip took 5 of the
+23 CSS px the button's content box has, and the line of text was exactly the 18 px that
+was left, so the text had nothing left over to center in.
+
+So `WindowButton._showsIndicator()` is `!this._label.visible`, and `updateStyle()` writes
+it to the strip. It lives in `updateStyle()` and not only in `_fitVertical()` because
+that pass returns until the panel has been measured, and the dash would show for that
+first moment.
+
+The centering is then not something to write: it is what the alignment already in the
+button does once the strip stops taking a slice of the band. Worth the API note, because
+it is not where one looks for it:
+
+* `ClutterBoxLayout` does **not** align its children across the box - it hands every
+  child the full cross extent (`child_allocation.y1 = box->y1; y2 = box->y2` for a
+  horizontal box) and never reads `x-align`/`y-align`;
+* the alignment is applied by the child itself, in `clutter_actor_set_allocation()` →
+  `clutter_actor_adjust_height()` → `adjust_for_alignment()`, which shrinks the
+  allocation to the actor's *natural* height and moves it by
+  `floor((allocated - natural) / 2)` for `CLUTTER_ACTOR_ALIGN_CENTER` (mutter's
+  `clutter/clutter/clutter-actor.c`);
+* so the label's `y_align: CENTER` centers its one line of text in whatever the row is
+  given, and the row's `y_expand` is what makes "whatever it is given" the whole band
+  once the strip is invisible - an invisible child is left out of a box layout's request
+  *and* out of its allocation.
+
+The same `multi-window-indicator-style` and `indicator-location` settings still drive the
+favourites, and the window buttons in icon-only mode; on a titled window button they have
+nothing left to drive.
 
 Left alone for now, and worth knowing: the *favourites* keep `.azTaskbar-BaseIcon`'s
 2 px vertical margin, so an icon-only button still costs 16 + 6 + 6 + 4 = 32 px against

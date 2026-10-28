@@ -96,6 +96,9 @@ class WindowTaskbarIndicator extends St.DrawingArea {
     // A strip that shares the button's width and sits beside the content box in
     // the button's vertical layout: BOTTOM puts it under the title, TOP above it
     // (same as aztaskbar's indicator-location for the favourite icons).
+    //
+    // On a window button it is only ever shown once the titles have given way
+    // (WindowButton._showsIndicator): a titled button wears no dash.
     _init(button) {
         super._init({
             // St has no x_fill/y_fill; in the button's vertical layout the
@@ -396,6 +399,25 @@ class WindowTaskbarButton extends St.Button {
         this._indicator.queue_repaint();
     }
 
+    /**
+     * Whether this button wears the running/focused dash at all.
+     *
+     * Not while it shows a title. The dash answers "is this application running?",
+     * and a button that names a window cannot answer anything but yes: the button
+     * exists because the window is open. What it does cost is a strip of the
+     * panel's height out of the band the title's line shares (see _fitVertical),
+     * which is where the title came to sit above the middle of the panel rather
+     * than on it.
+     *
+     * The favourites keep theirs - there the question is a real one - and so do
+     * the window buttons once the titles have given way to icons
+     * (window-labels-auto-hide), where a button looks like a favourite again and
+     * the dash is the one thing left that says which window is focused.
+     */
+    _showsIndicator() {
+        return !this._label.visible;
+    }
+
     /** Move the indicator strip to the edge requested by indicator-location. */
     _setIndicatorOrder() {
         const top = TaskbarManager.settings.get_enum('indicator-location') === IndicatorLocation.TOP;
@@ -460,6 +482,10 @@ class WindowTaskbarButton extends St.Button {
 
         this._indicator.setIndicatorLocation(settings.get_enum('indicator-location'));
         this._setIndicatorOrder();
+        // The dash goes on or off here rather than in _fitVertical, because that
+        // pass returns early until the panel has been measured, and a titled
+        // button would wear its dash for the moment before the first measurement.
+        this._indicator.visible = this._showsIndicator();
         this._fitVertical(bandHeight);
     }
 
@@ -481,6 +507,11 @@ class WindowTaskbarButton extends St.Button {
      * strip takes what that leaves of the band, and the button's *minimum* stays under
      * the band - which is what makes the box hand it the band and no more.
      *
+     * A titled button has no strip to budget in the first place (see
+     * _showsIndicator), and this pass is then only the floor: the row gets the band
+     * to itself and is centered in it. What is left to budget is the icon-only
+     * button - the row of one icon, and the dash under it.
+     *
      * Clutter 18 has no max-height property (see HACKING.md), and a natural size
      * below the minimum is the request that aborts the shell, so nothing is ever
      * capped here: the row's minimum is put on the floor (min-height *is* the
@@ -496,6 +527,25 @@ class WindowTaskbarButton extends St.Button {
         if (band <= 0 || this.get_stage() === null)
             return;
 
+        // the floor goes out of the row: if the panel is shorter than a line of
+        // text, the text is what is cut, not the button's place in the panel
+        this._label.min_height = 0;
+        this._icon.min_height = 0;
+
+        // No strip to fit on a titled button, and nothing to size: the row of
+        // icon and title has the band to itself (an invisible child is left out
+        // of the box's request *and* of its allocation), the row's y_expand is
+        // what makes it span that band, and the CENTER alignment the icon and the
+        // title are laid out with is what puts the title on the middle line of it
+        // - Clutter applies an actor's own alignment to the allocation its parent
+        // hands it, and the label's natural height is a single line of text, so
+        // the whole band is what it is centered against once the strip is gone.
+        if (!this._showsIndicator()) {
+            this._indicator.visible = false;
+            this._indicator.height = INDICATOR_HEIGHT;
+            return;
+        }
+
         // what the button's content may use, the theme's chrome paid for
         const room = Math.max(0, band - this.themeChromeHeight());
 
@@ -503,11 +553,6 @@ class WindowTaskbarButton extends St.Button {
         // nothing, so this is the icon's line once the titles have given way
         const [, rowNatural] = this._box.get_preferred_height(-1);
         const rowHeight = Math.round(rowNatural);
-
-        // the floor goes out of the row: if the panel is shorter than a line of
-        // text, the text is what is cut, not the button's place in the panel
-        this._label.min_height = 0;
-        this._icon.min_height = 0;
 
         const left = room - Math.min(rowHeight, room);
         if (left >= INDICATOR_MIN_HEIGHT) {
