@@ -12,7 +12,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {PopupAnimation} from 'resource:///org/gnome/shell/ui/boxpointer.js';
 
 import {AppIcon, ShowAppsIcon} from './appIcon.js';
-import {WindowsList} from './windowButtons.js';
+import {WindowButton, WindowsList} from './windowButtons.js';
 import * as Utils from './utils.js';
 import {TaskbarManager} from './taskbarManager.js';
 import {WindowPreviewMenuManager} from './windowPreview.js';
@@ -170,6 +170,13 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
     }
 
     handleDragOver(source, actor, x, _y, _time) {
+        // Fork: a window button belongs to the window list, and the list is not in
+        // this box (it lives in the panel's centre box). Letting it in here would
+        // reach source.app below - a window button has no .app - and would try to
+        // make a window into a favourite.
+        if (source instanceof WindowButton)
+            return DND.DragMotionResult.NO_DROP;
+
         const dropTarget = getDropTarget(this.mainBox, x);
         const dropTargetItem = dropTarget.item;
         const {index} = dropTarget;

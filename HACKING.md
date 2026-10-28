@@ -37,7 +37,11 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
 * middle click / shift+click: close the window
 * right click: window menu (Minimize, Maximize, Keep above, Move to this workspace, Close)
 * scroll wheel over a button: cycle through the windows of this workspace
-* ordering: `Meta.Window.get_stable_sequence()` (creation order)
+* drag (hold ~200 ms and move): the button comes loose and the row reorders, the
+  way the favourite icons do - see "Dragging a window button along the row"
+* ordering: the place a drag left each window, and
+  `Meta.Window.get_stable_sequence()` (creation order) for the ones nobody has
+  moved
 * room: the titles give way to icons when the panel has no room for them, and the
   list never asks for more than the panel has - see "When the panel runs out of room"
 
@@ -253,6 +257,89 @@ enormous. Clutter never gets a minimum on the label, only a maximum: a box child
 that asks for more than it can get is fatal, and that is covered above in "Size
 requests: these can kill the session".
 
+## Dragging a window button along the row
+
+A window button can be picked up and dropped further along the row, the way the
+favourite icons can. Both halves are the shell's own DND (`ui/dnd.js`), and it is
+driven by the actor's `_delegate`:
+
+* the **source** is the button (`WindowButton._delegate = this`), made draggable
+  with `DND.makeDraggable(this, {timeoutThreshold: 200})` - the same threshold
+  `AppIcon` uses, so a press that is not held stays a click;
+* `getDragActor()` returns a `Clutter.Clone` of the button, so a titled window
+  drags as the titled thing it is (a favourite drags as its icon, for the same
+  reason) - and **the button itself stays in the row**: DND takes the source out
+  of its parent only when there is no drag actor to show in its place, and the
+  live move below needs it attached. The clone is given an explicit `set_size()`,
+  because DND measures the drag actor before the stage has laid it out and an
+  unallocated actor answers `-1`;
+* the **target** is the list (`WindowsList._delegate = this`): `handleDragOver`
+  moves the button as the pointer passes the middle of its neighbours
+  (`_dropIndex`, `_moveButton`), and `acceptDrop` only commits what the move
+  already did.
+
+No drag *placeholder* actor, unlike the shell's dash: a placeholder is a child
+asking for room, and this list keeps its request to the room the centre box has
+(see "When the panel runs out of room"). Moving the button itself costs the row
+nothing and is what the drop leaves behind.
+
+**What a drop remembers is the row's order** (`_order`: windows, keyed the way
+`_buttons` is - the same `Meta.Window` wrapper comes back for the life of a
+window, which is what the map already relies on). `getWindows()` sorts by it and
+falls back to `get_stable_sequence()`, so a taskbar nobody has reordered behaves
+exactly as it did before dragging existed, and a new window joins at the end. Two
+corollaries worth knowing:
+
+* a window is forgotten by `_order` only when it stops existing (`_pruneOrder`,
+  asked of the window actors because mutter 18 has no `is_destroyed` to ask a
+  window with). One that merely moved to another workspace - the taskbar isolates
+  workspaces by default - comes back where the user put it; a kept `Meta.Window`
+  for a window that is gone would be a kept window; and
+* `cycleWindows` (the scroll wheel) follows the same order, which is the point: it
+  walks the windows in the order they are in front of the user.
+
+**During a drag nothing else may reshuffle the row.** `redisplay()` returns while
+`_draggedButton` is set - a window raised or closed mid-drag, or the room moving,
+would otherwise lay the buttons back in their stored order under the pointer - and
+the drag's end (`_dragEnded`) asks for the pass that was skipped. A cancelled or
+refused drop has nothing to undo, because the order is written on the drop only:
+that same deferred pass puts every button back at the index its stored order gives
+it. A button whose window closes under it clears the flag from its `destroy`
+handler without queueing anything itself (the list's own teardown destroys every
+button; see "Tearing down"). And once `_destroy()` has begun the list answers no
+DND at all (`_tornDown`): a drag outlives the actor it started on when the
+extension is disabled with a button in the air, and asking a destroyed actor for
+its children is not a question Clutter answers politely.
+
+Two guards keep drags that are not this row's business out:
+
+* `WindowsList.handleDragOver`/`acceptDrop` take a `WindowButton` **whose `_list`
+  is this list**. With a taskbar per monitor, each list has its own button for the
+  same window, so it is the identity of the button, not its type, that decides.
+  Anything else - an app dragged out of the overview, an Xdnd drop from an
+  application - is answered with `CONTINUE`, not `NO_DROP`, so the walk up the
+  parents carries on to the panel (whose own `handleDragOver` only acts on Xdnd);
+* `AppIconsTaskbar.handleDragOver` sends a window button away with `NO_DROP`: the
+  favourites' handler reads `source.app`, which a window button does not have, and
+  a window is not a thing to favourite.
+
+Dropping past the last button *shown* puts the window at the end of the shown row,
+behind which sit the buttons the room has no space for; sending it behind those
+would cost the row a visible button on every drag to the right, since the blank
+_tail_ is what `_shareRoom` trims.
+
+One thing the fork inherits rather than implements: the delegate carries a
+`metaWindow`, which is how the shell's own drag sources look, so a button released
+over a workspace in the overview is taken by `Workspace.acceptDrop` and the window
+moves to that workspace. Nothing here stops it, and it reads as a feature.
+
+`node dev/reorder-check.mjs` runs the index arithmetic (`_dropIndex`,
+`_moveButton`, `_commitOrder`, `_compareWindows`) against fake children. Pointer
+events cannot be injected into the shell ("Looking at what is on screen"), and a
+crashed session is not a fair price for an off-by-one. To watch the real thing:
+drag something, then `scripts/dump.sh` - the dump lists the buttons in row order,
+and `scripts/treeshow.py` prints their titles.
+
 ## The panel's height: the button has to fit inside the band
 
 The width of the row has a budget (`_roomWidth`); so does the height, and it is the
@@ -422,6 +509,7 @@ scripts/dump.sh             # dev/probe.js writes build/dev/dump.json: the live
                             # actor tree (size, min/natural, on-screen position,
                             # min>nat marker), gsettings, Meta window details
 python3 scripts/treeshow.py # a readable summary of that dump
+node dev/reorder-check.mjs  # the row's reorder arithmetic, no shell needed
 scripts/shot.sh             # a screenshot -> build/shot.png
 python3 scripts/pview.py    # crop the panel band -> build/panel.png (--runs, --box=)
 scripts/devclick.sh 'Brave' # run a window button's click handler from the probe

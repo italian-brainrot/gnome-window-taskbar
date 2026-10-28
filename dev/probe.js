@@ -156,6 +156,12 @@ function windowListDump(list) {
         visible: list.visible,
         buttons: list._buttons ? list._buttons.size : null,
         children: list.get_children().length,
+        // what a drop committed (windowButtons.js _commitOrder): the row order is
+        // built from this, so a drag that did not stick shows up here as a stale
+        // title order against buttonWidths below
+        order: (list._order ?? []).map(w => w.get_title?.() ?? null),
+        // whether a drag is holding the row still (see _draggedButton)
+        dragging: list._draggedButton?.metaWindow?.get_title?.() ?? null,
         // how the list worked its own width out (see _shareRoom/_roomWidth)
         sizing: {
             room: list._measuredRoom,

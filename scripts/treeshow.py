@@ -44,6 +44,11 @@ for m in data['panelManagers']:
     wl = m.get('windowsList')
     if wl is not None:
         print('  windowsList: children=%s' % wl['children'] if wl else '  windowsList: None')
+        if wl and wl.get('order') is not None:
+            # the order a drop committed, and the button a drag is holding still
+            print('   order: %s%s' % (
+                wl['order'],
+                '   <== dragging %r' % wl['dragging'] if wl.get('dragging') else ''))
         sizing = (wl or {}).get('sizing') or {}
         band = sizing.get('band')
         if band is not None:

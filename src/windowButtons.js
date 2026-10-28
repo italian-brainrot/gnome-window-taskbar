@@ -16,6 +16,7 @@ import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
+import * as DND from 'resource:///org/gnome/shell/ui/dnd.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
@@ -60,6 +61,11 @@ const BUTTON_CHROME_HEIGHT = 6;
 // separator line in front of the buttons (see .azTaskbar-window-list in
 // stylesheet.css), again only for the pass with no theme node to read.
 const BUTTON_ROW_WIDTH = 9;
+
+// How long the press has to be held before a window button comes loose from the
+// row and becomes a drag. The same threshold the favourite AppIcons use
+// (appIcon.js), so a click stays a click on either kind of button.
+const DRAG_TIMEOUT = 200;
 
 // Clutter.button-event button numbers; St.Button itself has no get_button().
 const BUTTON_PRIMARY = 1;
@@ -164,7 +170,9 @@ class WindowTaskbarIndicator extends St.DrawingArea {
     }
 });
 
-const WindowButton = GObject.registerClass(
+// One button per open window; exported so the favourites' drop handling can tell
+// a window button apart from an AppIcon (a window is not a thing to favourite).
+export const WindowButton = GObject.registerClass(
 class WindowTaskbarButton extends St.Button {
     _init(metaWindow, windowsList) {
         super._init({
@@ -243,6 +251,17 @@ class WindowTaskbarButton extends St.Button {
         });
         this.connect('scroll-event', (actor, event) => this._onScroll(event));
         this.connect('destroy', () => this._onDestroy());
+
+        // Drag the button along the row to reorder the taskbar, exactly as the
+        // favourite icons are reordered. DND asks the actor's _delegate for the
+        // drag actor and the drop target answers as the list itself (see
+        // WindowsList.handleDragOver), so both delegates are set here and there.
+        this._delegate = this;
+        this._draggable = DND.makeDraggable(this, {timeoutThreshold: DRAG_TIMEOUT});
+        this._draggable.connectObject(
+            'drag-begin', () => this._onDragBegin(),
+            'drag-end', () => this._onDragEnd(),
+            this);
 
         this._watchWindow();
         this.updateStyle();
@@ -557,6 +576,51 @@ class WindowTaskbarButton extends St.Button {
         this._list.cycleWindows(backwards);
     }
 
+    /**
+     * The actor that follows the pointer during a drag: a copy of the button, so
+     * a window drags as the titled thing it is (a favourite drags as its icon,
+     * for the same reason - see AppIcon.getDragActor).
+     *
+     * The button itself stays in the row: DND takes the source out of its parent
+     * only when there is no drag actor to show in its place, and the live
+     * reordering in WindowsList.handleDragOver needs it there.
+     */
+    getDragActor() {
+        const clone = new Clutter.Clone({source: this});
+
+        // DND measures the drag actor as soon as it is picked up, before the stage
+        // has laid it out - and an actor with neither an allocation nor a size
+        // request answers -1. The button's own box is the honest size for a copy
+        // of it.
+        clone.set_size(this.get_width(), this.get_height());
+        return clone;
+    }
+
+    getDragActorSource() {
+        return this;
+    }
+
+    /**
+     * The button is loose. The list is told, because the signals a drag sets off
+     * (a window raised, a window closed, the room moving) would otherwise rebuild
+     * the row under the pointer and put every button back where it was (see
+     * WindowsList._dragStarted).
+     */
+    _onDragBegin() {
+        this._menu?.close();
+        this._list._dragStarted(this);
+    }
+
+    /**
+     * The drag is over, however it ended - accepted, refused, or cancelled with
+     * Escape. The order was committed on the drop only (see acceptDrop), so a
+     * cancelled drag has nothing to undo: the redisplay that is queued here puts
+     * every button back at the index its stored order gives it.
+     */
+    _onDragEnd() {
+        this._list._dragEnded();
+    }
+
     _menuSide() {
         const location = TaskbarManager.settings.get_enum('panel-location');
         return location === PanelLocation.BOTTOM ? St.Side.BOTTOM : St.Side.TOP;
@@ -620,6 +684,15 @@ class WindowTaskbarButton extends St.Button {
         this._signals.destroy();
         this._menu?.destroy();
         this._menu = null;
+        this._draggable?.disconnectObject(this);
+        this._draggable = null;
+
+        // A button that went away mid-drag (its window closed under it) must not
+        // leave the list refusing to rebuild itself. No redisplay is queued from
+        // here: this is on the teardown path, and the list's own teardown destroys
+        // every button (HACKING.md, "Tearing down").
+        if (this._list._draggedButton === this)
+            this._list._draggedButton = null;
     }
 });
 
@@ -640,6 +713,18 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this._monitor = monitor;
         this._settings = TaskbarManager.settings;
         this._buttons = new Map();
+        /**
+         * The order of the row, as the user left it: windows in the place a drag
+         * put them, and empty until somebody drags one (see _compareWindows and
+         * acceptDrop). Windows are the key, as they are for _buttons - the same
+         * Meta.Window wrapper comes back from global.get_window_actors() for the
+         * life of a window, which is what the _buttons map already relies on.
+         */
+        this._order = [];
+        // the button currently loose in the row, and the reason redisplay waits
+        this._draggedButton = null;
+        // set once _destroy() has begun: DND can still come asking afterwards
+        this._tornDown = false;
         // the panel this list sits in, and the room it had when the buttons were
         // last sized (see _watchPanelRoom)
         this._panel = null;
@@ -656,6 +741,12 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             y_align: Clutter.ActorAlign.FILL,
         });
         this.add_child(this._spacer);
+
+        // The drop target for a drag along the row. DND asks the _delegate of the
+        // actor under the pointer and then walks up the parents, and the buttons
+        // are drag *sources* only (see WindowButton): the row is what takes a
+        // window back.
+        this._delegate = this;
 
         // (refreshes are queued by queueRedisplay, on the fork's own timer)
 
@@ -1083,12 +1174,38 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             : 0;
     }
 
-    /** Windows belonging on this monitor's taskbar, in creation order. */
+    /**
+     * Windows belonging on this monitor's taskbar, in the order of the row: the
+     * place the user dragged each one to, and creation order for the rest.
+     */
     getWindows() {
         const windows = global.get_window_actors().map(actor => actor.metaWindow);
 
         return Utils.getInterestingWindows(this._settings, windows, this._monitor.index)
-            .sort((a, b) => a.get_stable_sequence() - b.get_stable_sequence());
+            .sort((a, b) => this._compareWindows(a, b));
+    }
+
+    /**
+     * Where the row puts a window: a dragged place first, creation order after.
+     *
+     * A window nobody has moved (_order has no place for it) waits at the end of
+     * the row, so a new window joins the taskbar where the taskbar has always put
+     * it; and a taskbar nobody has ever reordered - an empty _order - is sorted
+     * exactly as it was before dragging existed.
+     */
+    _compareWindows(a, b) {
+        const posA = this._order.indexOf(a);
+        const posB = this._order.indexOf(b);
+
+        if (posA !== posB) {
+            if (posA === -1)
+                return 1;
+            if (posB === -1)
+                return -1;
+            return posA - posB;
+        }
+
+        return a.get_stable_sequence() - b.get_stable_sequence();
     }
 
     _syncStates() {
@@ -1101,11 +1218,42 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             return;
 
         this._buttons.delete(metaWindow);
+        // The place the user gave the window is *not* dropped here: this runs for
+        // a window that merely left the workspace or the monitor as well (see
+        // redisplay), and the place it was dragged to is meant to survive that.
+        // Gone windows are pruned in _pruneOrder.
         button.destroy();
     }
 
+    /**
+     * Drop the windows that no longer exist from the stored order. A kept
+     * Meta.Window is a kept window, so this cannot wait; and a stale entry would
+     * push the windows behind it along the row.
+     *
+     * "No longer exists" is answered by the window actors: mutter 18 has no
+     * is_destroyed to ask a window with (HACKING.md, "API notes"), but every
+     * managed window - on any workspace, minimized or not - has an actor, and a
+     * closed one has none. So a window that only moved out of sight keeps its
+     * place, and one that was closed loses it.
+     */
+    _pruneOrder() {
+        if (this._order.length === 0)
+            return;
+
+        const alive = new Set(global.get_window_actors().map(actor => actor.metaWindow));
+        this._order = this._order.filter(window => alive.has(window));
+    }
+
     redisplay() {
+        // A drag is moving the buttons about by itself; rebuilding the row in the
+        // middle of one would take them back to their stored order under the
+        // pointer. Nothing is lost: the drag's end asks for this pass again (see
+        // _dragEnded), and the order the drag committed is what that pass lays out.
+        if (this._draggedButton)
+            return;
+
         this._placeInPanel();
+        this._pruneOrder();
 
         // the room decides how many buttons there may be (see _maxButtonCount);
         // the windows beyond that are the overview's business, not the taskbar's
@@ -1159,6 +1307,144 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         return this.get_children().indexOf(child);
     }
 
+    /**
+     * Draggable-target interface: the row a window button is dragged over moves
+     * it, live, the way the favourite icons are reordered in appIconsTaskbar.
+     *
+     * Live rather than with a placeholder actor on purpose: a placeholder is a
+     * child asking for room, and this list keeps its request to the room the
+     * centre box has (HACKING.md, "When the panel runs out of room"); moving the
+     * button itself costs the row nothing and is what the drop leaves behind.
+     */
+    handleDragOver(source, _actor, x, _y, _time) {
+        // A drag outlives the actor it started on when the extension is disabled
+        // halfway through: DND still asks the delegates it picked, and asking a
+        // destroyed actor for its children is not a question Clutter answers.
+        if (this._tornDown)
+            return DND.DragMotionResult.CONTINUE;
+
+        // Only this row's own buttons: the source has to be a window button (an
+        // app dragged out of the overview or an Xdnd drop are the panel's and the
+        // favourites' business, and the walk up the parents should carry on - hence
+        // CONTINUE rather than NO_DROP), and it has to be *this* row's button, since
+        // another monitor's taskbar holds a button for the same window (its own
+        // list is the one to answer, and it is not under the pointer).
+        if (!(source instanceof WindowButton) || source._list !== this)
+            return DND.DragMotionResult.CONTINUE;
+
+        this._moveButton(source, this._dropIndex(x));
+        return DND.DragMotionResult.MOVE_DROP;
+    }
+
+    acceptDrop(source, _actor, _x, _y, _time) {
+        if (this._tornDown)
+            return false;
+
+        if (!(source instanceof WindowButton) || source._list !== this)
+            return false;
+
+        // The button is already where the pointer left it (handleDragOver moved it
+        // along the way); what a drop adds is the intention, so that the next
+        // redisplay - and every one after it - lays the row out in this order.
+        this._commitOrder();
+        return true;
+    }
+
+    /**
+     * Which button the pointer is over, as a child index: the first button whose
+     * middle is to the right of the pointer, and just past the last button there
+     * is room for otherwise. Dropping on the left half of a button goes before it,
+     * on the right half after it - which is what makes the row move under the
+     * pointer as it passes the middle of a neighbour.
+     *
+     * The blank tail is stepped over (it is not a window) and so are the buttons
+     * the room has no space for: a child the box layout does not lay out has no
+     * allocation worth trusting (see _shareRoom).
+     */
+    _dropIndex(x) {
+        const children = this.get_children();
+        // just past the last button that has an allocation, kept while walking so
+        // the "past the end" answer does not have to be guessed afterwards
+        let end = -1;
+
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child === this._spacer || !child.visible)
+                continue;
+
+            const {x1, x2} = child.allocation;
+            if (x < x1 + (x2 - x1) / 2)
+                return i;
+
+            end = i + 1;
+        }
+
+        // Past the middle of the last button there is room for: the end of the
+        // shown row - and the buttons the room has no space for keep their place
+        // behind it. Sending the dragged button behind them instead would cost the
+        // row a visible button on every drag to the right: the drag would land in
+        // the blank tail, and the tail is what _shareRoom trims.
+        return end;
+    }
+
+    /**
+     * Put `button` at `index`, counting the children as they are while the button
+     * is still among them (the drag leaves it in the row - see getDragActor).
+     *
+     * A button moving to the right leaves its old place behind, so where it lands
+     * is one before where it was aimed; and the index is clamped to the children
+     * there are, because the blank tail keeps the last child's place (redisplay).
+     */
+    _moveButton(button, index) {
+        const children = this.get_children();
+        const from = children.indexOf(button);
+        if (from === -1)
+            return false;
+
+        let target = Math.max(0, Math.min(index, children.length - 1));
+        if (from < target)
+            target -= 1;
+
+        if (from === target)
+            return false;
+
+        // insert_child_at_index will not re-parent a child that is attached
+        this.remove_child(button);
+        this.insert_child_at_index(button, target);
+        return true;
+    }
+
+    /**
+     * Make the row's order as it stands the order the list keeps: getWindows sorts
+     * by it and every later redisplay lays the buttons out in it. The windows that
+     * have no button (too many for the room, see _maxButtonCount) and the ones that
+     * have never been dragged keep coming after it, in creation order.
+     */
+    _commitOrder() {
+        this._order = this.get_children()
+            .filter(child => child !== this._spacer)
+            .map(child => child.metaWindow);
+    }
+
+    /** A button came loose: nothing may reshuffle the row until it lands. */
+    _dragStarted(button) {
+        this._draggedButton = button;
+    }
+
+    /** It landed, or it did not: the row is the list's again. */
+    _dragEnded() {
+        // 'drag-end' can arrive after the list is gone, when the extension was
+        // disabled with a button in the air: queuing a refresh for a torn-down
+        // list would run redisplay on a destroyed actor
+        if (this._tornDown)
+            return;
+
+        this._draggedButton = null;
+        // the pass the drag held off (a window closed during it, the room moved),
+        // and the buttons back to their stored order when the drag was cancelled
+        this.queueRedisplay();
+    }
+
     /** Scroll wheel over a window button cycles through the windows. */
     cycleWindows(backwards) {
         const windows = this.getWindows();
@@ -1178,6 +1464,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     _destroy() {
+        // no DND entry point is answered after this (see handleDragOver)
+        this._tornDown = true;
         Utils.cancelRefresh(this, '_refreshId');
         this._settings.disconnectObject(this);
         global.display.disconnectObject(this);
@@ -1185,9 +1473,12 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         Shell.AppSystem.get_default().disconnectObject(this);
         this._roomSignals?.destroy();
         this._roomSignals = null;
+        this._draggedButton = null;
 
         for (const button of this._buttons.values())
             button.destroy();
         this._buttons.clear();
+        // dropped with the buttons: they hold the only references to the windows
+        this._order = [];
     }
 });
