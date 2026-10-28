@@ -50,15 +50,10 @@
         <value value='1' nick='LEFT'/>
         <value value='2' nick='RIGHT'/>
     </enum>
+    <!-- The fork dropped upstream's update notifier (it announced aztaskbar
+         releases, which is meaningless here), and with it the
+         'update-notifier-enabled' / 'update-notifier-project-version' keys. -->
     <schema id="org.gnome.shell.extensions.windowtaskbar" path="/org/gnome/shell/extensions/windowtaskbar/">
-        <key type="i" name="update-notifier-project-version">
-            <default>0</default>
-            <summary>The project version of when an update notification was shown</summary>
-        </key>
-        <key type="b" name="update-notifier-enabled">
-            <default>true</default>
-            <summary>Enable/Disable the update notifications</summary>
-        </key>
         <key type="s" name="prefs-visible-page">
             <default>''</default>
             <summary>Which page to show when settings window is opened. Empty string is default.</summary>
@@ -268,10 +263,9 @@
             <default>40</default>
             <summary>Peek to window - opacity of inactive windows. 0 - 255</summary>
         </key>
-        <key type="b" name="multi-window-indicator">
-            <default>true</default>
-            <summary>Show an indicator when app has multiple windows</summary>
-        </key>
+        <!-- 'multi-window-indicator' (the boolean that switched the dash on and
+             off) is gone: the fork shows the running/focused dash for every
+             window button, and only the style of the dash is a choice. -->
         <key enum="org.gnome.shell.extensions.windowtaskbar.multi-window-indicator-style" name="multi-window-indicator-style">
             <default>'MULTI_DASH'</default>
             <summary>Multiple window indicator style</summary>
