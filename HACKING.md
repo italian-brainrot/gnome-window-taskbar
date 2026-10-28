@@ -32,10 +32,14 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
 * right click: window menu (Minimize, Maximize, Keep above, Move to this workspace, Close)
 * scroll wheel over a button: cycle through the windows of this workspace
 * ordering: `Meta.Window.get_stable_sequence()` (creation order)
+* room: the titles give way to icons when the panel has no room for them, and the
+  list never asks for more than the panel has - see "When the panel runs out of room"
 
 ## New gsettings keys
 
-`window-labels`, `window-button-icons`, `window-button-width` (0 = fit title),
+`window-labels`, `window-labels-auto-hide` (titles give way to icons when the room
+per window is too small), `window-title-max-chars` (0 = the whole title),
+`window-button-icons`, `window-button-width` (a maximum; 0 = no cap),
 `window-label-font-size` (0 = panel default), `favorites-always-new-window`.
 
 ## API notes (verified on the host, not from memory)
@@ -112,6 +116,60 @@ Numbers from a 1920 px panel (2560x1600 at 1.333x): left box 308 px (Show-Apps +
 10 favourite icons at 16 px), centre box 1056 px, right box 432 px (clock, quick
 settings). The window list gets the full 1056 px.
 
+## When the panel runs out of room
+
+Too many windows and a naive taskbar pushes the favourites and the status area off
+the monitor. Three things keep that from happening, all of them inside the room the
+centre box has (`_roomWidth`):
+
+* **room per window**: `_shareRoom` divides the room by the number of buttons, and
+  that is what each button may ask for at most (`window-button-width` stays the
+  cap it shares, so the preference is never what overflows).
+* **titles give way to icons**: a title is only worth its room if it can show a few
+  characters, which means the button's padding (`BUTTON_CHROME_WIDTH`), the icon and
+  `MIN_LABEL_WIDTH`. Below that the titles go away on their own and the buttons are
+  icons: `window-labels-auto-hide`, and the same decision is handed down to
+  `WindowTaskbarButton.updateStyle(widthCap, showLabels)`, so it is the list that
+  works the room out and the buttons that agree about it.
+* **a limit on how many buttons there are**: `_maxButtonCount` works out how many
+  buttons the room holds at their smallest (icons only) and `redisplay` stops adding
+  buttons past that; the windows left over are the overview's business. The status
+  area and the favourites therefore stay where they are.
+
+  This is a limit on the *count*, not a cap on what the list asks for, and that
+  distinction is the whole point: capping the list below the minimum its buttons
+  must have is the one request Clutter does not forgive ("natural width ... <
+  minimum" aborts the shell, which is how a session was lost before). A *maximum*
+  on the title (`max_width`) is fine; a *minimum* on that same label is fatal. A
+  scroll wrapper was tried instead of the count limit and is out: the wrapper would
+  be the list's parent, and a child tearing down its own parent aborts the shell
+  (see "Tearing down" below). A wrapper the fork owns outright could be added back,
+  but it has to be tested against a real disable.
+
+
+The title is cut to `window-title-max-chars` characters before the layout sees it,
+which is what stops a browser with a long tab title in it from making the buttons
+enormous. Clutter never gets a minimum on the label, only a maximum: a box child
+that asks for more than it can get is fatal, and that is covered above in "Size
+requests: these can kill the session".
+
+## Tearing down: never destroy the panel item from the list's own teardown
+
+`clutter_actor_destroy_all_children` aborts the shell (the assertion
+`self->priv->n_children < prev_n_children`, followed by a `Bail out!` and a
+session) when an actor's teardown destroys an *ancestor* of itself: Clutter walks
+the children and expects their number to drop, and an unparenting from inside that
+walk does not make it drop. Concretely: do not call `parent.destroy()` from the
+child's `destroy` handler. Whoever owns the panel item does the destroying, in
+`AppIconsTaskbar._destroy()`, and the list's own `_destroy()` only disconnects
+signals and drops its own references.
+
+That is why the window list has no `St.ScrollView` wrapper at the moment: the
+wrapper would be the list's parent, and a wrapper owned by the list is exactly the
+setup that aborted twice. A scroll wrapper that is safe to teardown can be added
+back when the fork owns it outright (and it has to be tested against a *real*
+disable, not a reload of a dev build).
+
 ## Dev loop
 
 GNOME Shell 50.6 scans extension dirs **once, at session start**
@@ -122,16 +180,24 @@ GJS module cache for the rest of the session, so even a fixed copy is not
 re-imported. Both problems mean: touching a *new* uuid or fixing an import error
 needs a session restart.
 
-So instead of restarting the session per code change, use the dev loader:
+So instead of restarting the session per code change there is the dev loader below.
+Know its price first: every iteration loads another taskbar instance into the *live*
+session, and a bad size request or a broken teardown takes the shell - and with it
+the session - down. It happened repeatedly in this harness, and the complaint "the
+dev loader keeps crashing me out, I disabled it" is fair. The loader is not part of
+the shipped product, so it should be set up only when it is actually needed and
+taken away again as soon as the round of checking is done.
 
 ```
-scripts/dev-setup.sh        # one-off: installs windowtaskbar-dev@local (a loader
-                            # extension whose extension.js only imports the code
-                            # from build/dev/iterN/), then ONE session restart
-scripts/hotreload.sh        # build a new iteration + reload it live
-scripts/hotreload.sh --prefs # also restart the prefs service (its module cache
-                            # is dropped when the D-Bus activated service dies)
+scripts/dev-setup.sh        # sets it up: installs windowtaskbar-dev@local (a
+                            # loader whose extension.js only imports the code in
+                            # build/dev/iterN/); needs ONE session restart
+scripts/dev-teardown.sh     # and takes it away again (disable, then remove the
+                            # directory) so the session is not asked to load it
+scripts/hotreload.sh        # build an iteration + reload it live - risky: another
+                            # instance goes into the running session
 scripts/logs.sh 300         # read shell/daemon errors from the host journal
+```
 ```
 
 ### Looking at what is on screen

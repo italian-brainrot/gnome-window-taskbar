@@ -163,6 +163,14 @@
             <default>true</default>
             <summary>Show the window title on the window buttons</summary>
         </key>
+        <key type="b" name="window-labels-auto-hide">
+            <default>true</default>
+            <summary>Hide the window titles when the panel has no room for them, and show icons only</summary>
+        </key>
+        <key type="i" name="window-title-max-chars">
+            <default>48</default>
+            <summary>Maximum length of a window title on a button, in characters. 0 = show all of it</summary>
+        </key>
         <key type="b" name="window-button-icons">
             <default>true</default>
             <summary>Show the window icon on the window buttons</summary>

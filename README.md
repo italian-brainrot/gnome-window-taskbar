@@ -19,4 +19,7 @@ app, via the extension's gsettings schema).
 
 ## What it looks like / behaviour
 
-See `HACKING.md` for the behaviour table and the list of new settings keys.
+See `HACKING.md` for the behaviour table and the list of new settings keys. When
+there are too many windows for the panel, the titles give way to icons and the
+favourites and the status area stay on screen; the title itself is cut to a length
+you can set in the preferences.

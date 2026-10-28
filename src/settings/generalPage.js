@@ -453,7 +453,7 @@ class AzTaskbarGeneralPage extends Adw.PreferencesPage {
         });
         const windowButtonWidthRow = new Adw.ActionRow({
             title: _('Window Button Width'),
-            subtitle: _('0 means the button is as wide as its title'),
+            subtitle: _('A maximum: 0 leaves no cap, and the buttons shrink as the panel fills up'),
             activatable_widget: windowButtonWidthSpinButton,
         });
         windowButtonWidthRow.add_suffix(windowButtonWidthSpinButton);
@@ -479,6 +479,42 @@ class AzTaskbarGeneralPage extends Adw.PreferencesPage {
         });
         windowLabelFontRow.add_suffix(windowLabelFontSpinButton);
         windowButtonsGroup.add(windowLabelFontRow);
+
+        const windowTitleCharsSpinButton = new Gtk.SpinButton({
+            adjustment: new Gtk.Adjustment({
+                lower: 0, upper: 512, step_increment: 4, page_increment: 16, page_size: 0,
+            }),
+            climb_rate: 1,
+            digits: 0,
+            numeric: true,
+            valign: Gtk.Align.CENTER,
+        });
+        windowTitleCharsSpinButton.set_value(this._settings.get_int('window-title-max-chars'));
+        windowTitleCharsSpinButton.connect('value-changed', widget => {
+            this._settings.set_int('window-title-max-chars', widget.get_value());
+        });
+        const windowTitleCharsRow = new Adw.ActionRow({
+            title: _('Window Title Maximum Length'),
+            subtitle: _('In characters; 0 shows the whole title'),
+            activatable_widget: windowTitleCharsSpinButton,
+        });
+        windowTitleCharsRow.add_suffix(windowTitleCharsSpinButton);
+        windowButtonsGroup.add(windowTitleCharsRow);
+
+        const windowLabelsAutoSwitch = new Gtk.Switch({
+            valign: Gtk.Align.CENTER,
+            active: this._settings.get_boolean('window-labels-auto-hide'),
+        });
+        const windowLabelsAutoRow = new Adw.ActionRow({
+            title: _('Hide Titles When There Is No Room'),
+            subtitle: _('Then the buttons shrink to icons, and the rest of the panel stays on screen'),
+            activatable_widget: windowLabelsAutoSwitch,
+        });
+        windowLabelsAutoSwitch.connect('notify::active', widget => {
+            this._settings.set_boolean('window-labels-auto-hide', widget.get_active());
+        });
+        windowLabelsAutoRow.add_suffix(windowLabelsAutoSwitch);
+        windowButtonsGroup.add(windowLabelsAutoRow);
 
         const closeOnMiddleSwitch = new Gtk.Switch({
             valign: Gtk.Align.CENTER,

@@ -252,7 +252,28 @@ class WindowTaskbarButton extends St.Button {
     }
 
     updateTitle() {
-        this._label.text = this.metaWindow.get_title() || _('Untitled window');
+        const title = this.metaWindow.get_title() || _('Untitled window');
+
+        // The title is cut to length before the layout ever sees it: an unlimited
+        // title makes the button enormous, and Clutter does not forgive a child
+        // that asks for more than it can get - the whole shell goes down with it.
+        // The preference is in characters, which is what a person counts.
+        const max = this._settings.get_int('window-title-max-chars');
+        if (max > 0) {
+            const chars = [...title];
+            if (chars.length > max) {
+                this._label.text = `${chars.slice(0, max).join('')}…`;
+                return;
+            }
+        }
+
+        this._label.text = title;
+    }
+
+    /** The width the app icon asks for, or 0 when the icons are off. */
+    _iconWidth() {
+        const settings = this._settings;
+        return settings.get_boolean('window-button-icons') ? settings.get_int('icon-size') : 0;
     }
 
     updateIcon() {
@@ -298,13 +319,15 @@ class WindowTaskbarButton extends St.Button {
      *
      * @param {number=} widthCap - room per button, see WindowsList._shareRoom
      */
-    updateStyle(widthCap = null) {
+    updateStyle(widthCap = null, showLabels = null) {
         const settings = this._settings;
 
         this._icon.visible = settings.get_boolean('window-button-icons');
         this._icon.icon_size = settings.get_int('icon-size');
 
-        this._label.visible = settings.get_boolean('window-labels');
+        // the list works out whether titles fit the room it shares out (see
+        // _shareRoom), so that decision is handed down here
+        this._label.visible = showLabels ?? settings.get_boolean('window-labels');
 
         const requested = widthCap ?? settings.get_int('window-button-width');
         // Clutter's min-/max-width properties take no negative value (setting -1
@@ -313,12 +336,9 @@ class WindowTaskbarButton extends St.Button {
         this._label.min_width = 0;
         this._label.max_width = NO_LIMIT;
         if (requested > 0) {
-            const iconWidth = settings.get_boolean('window-button-icons')
-                ? settings.get_int('icon-size')
-                : 0;
             // the floor is only ever a maximum (max_width), so it is safe
             this._label.max_width = Math.max(MIN_LABEL_WIDTH,
-                requested - BUTTON_CHROME_WIDTH - iconWidth);
+                requested - BUTTON_CHROME_WIDTH - this._iconWidth());
         }
 
         // the font size comes as a style; the width cap is the max_width property,
@@ -488,18 +508,24 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     _setSettingsConnections() {
-        const styleKeys = ['window-labels', 'window-button-icons', 'window-button-width',
-            'window-label-font-size', 'icon-size', 'taskbar-spacing', 'panel-location'];
+        const styleKeys = ['window-labels', 'window-labels-auto-hide', 'window-button-icons',
+            'window-button-width', 'window-label-font-size', 'icon-size', 'taskbar-spacing',
+            'panel-location'];
         const layoutKeys = ['isolate-workspaces', 'isolate-monitors', 'panel-on-all-monitors'];
+        // the title is cut before the layout sees it, so changing the length means
+        // the titles are made again rather than merely styled
+        const titleKeys = ['window-title-max-chars'];
 
         this._settings.connectObject('changed::show-running-apps', () => {
             this.visible = this._settings.get_boolean('show-running-apps');
         }, this);
 
-        [...styleKeys, ...layoutKeys].forEach(key => {
+        [...styleKeys, ...layoutKeys, ...titleKeys].forEach(key => {
             this._settings.connectObject(`changed::${key}`, () => {
                 if (styleKeys.includes(key))
                     this._buttons.forEach(button => button.updateStyle());
+                if (titleKeys.includes(key))
+                    this._buttons.forEach(button => button.updateTitle());
                 this.queueRedisplay();
             }, this);
         });
@@ -551,7 +577,13 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     _naturalWidth(actor) {
-        const sizes = actor?.get_preferred_width?.(-1);
+        // an actor that is not on the stage yet (the list, before it is placed in
+        // the panel) has no theme node to measure against, and Clutter shouts about
+        // it - so the honest answer for that moment is 0
+        if (!actor || actor.get_stage?.() === null)
+            return 0;
+
+        const sizes = actor.get_preferred_width?.(-1);
         return sizes ? Math.round(sizes[1]) : 0;
     }
 
@@ -593,14 +625,26 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     _shareRoom() {
         const room = this._roomWidth();
         const count = this._buttons.size;
-        const preference = this._settings.get_int('window-button-width');
+        const settings = this._settings;
+        const preference = settings.get_int('window-button-width');
 
         let cap = preference;
+        let each = NO_LIMIT;
         if (room >= 0 && count > 0) {
-            const each = Math.floor(room / count);
+            each = Math.floor(room / count);
             cap = preference > 0 ? Math.min(preference, each) : each;
         }
-        this._buttons.forEach(button => button.updateStyle(cap));
+
+        // A title is only worth its room if it can show a few characters: the
+        // button's own padding, the icon and MIN_LABEL_WIDTH worth of title. Below
+        // that the titles give way to icons on their own - that is what keeps a
+        // taskbar full of windows from pushing the panel around.
+        const needs = BUTTON_CHROME_WIDTH + this._buttonIconWidth() + MIN_LABEL_WIDTH;
+        const fit = room < 0 || count === 0 || each >= needs;
+        const showLabels = settings.get_boolean('window-labels') &&
+            (fit || !settings.get_boolean('window-labels-auto-hide'));
+
+        this._buttons.forEach(button => button.updateStyle(cap, showLabels));
 
         if (room < 0) {
             this._spacer.visible = false;
@@ -615,6 +659,36 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         const withoutSpacer = this._naturalWidth(this) - this._naturalWidth(this._spacer);
         this._spacer.visible = true;
         this._spacer.style = `width: ${Math.max(0, room - withoutSpacer)}px;`;
+    }
+
+    /**
+     * How many buttons the room the centre box has can hold, counting each button
+     * at its smallest (icons only, no title). More buttons than that would ask the
+     * panel for more than it has, and the favourites and the status area would be
+     * carried off the monitor - so the list stops adding buttons there instead, and
+     * the windows left over stay reachable through the overview.
+     *
+     * It is a count limit rather than a size limit on purpose: capping what the
+     * list asks for below what its buttons must have is the one request Clutter
+     * does not forgive ("natural width ... < minimum" aborts the whole shell).
+     */
+    _maxButtonCount() {
+        const room = this._roomWidth();
+
+        // no room computed means the list is not in the panel yet (at session
+        // start, and again whenever the panel is rebuilt): nothing to cap then
+        if (room < 0)
+            return Number.MAX_SAFE_INTEGER;
+
+        const smallest = BUTTON_CHROME_WIDTH + this._buttonIconWidth() +
+            this._settings.get_int('taskbar-spacing');
+        return Math.max(1, Math.floor(room / smallest));
+    }
+
+    _buttonIconWidth() {
+        return this._settings.get_boolean('window-button-icons')
+            ? this._settings.get_int('icon-size')
+            : 0;
     }
 
     /** Windows belonging on this monitor's taskbar, in creation order. */
@@ -641,7 +715,9 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     redisplay() {
         this._placeInPanel();
 
-        const windows = this.getWindows();
+        // the room decides how many buttons there may be (see _maxButtonCount);
+        // the windows beyond that are the overview's business, not the taskbar's
+        const windows = this.getWindows().slice(0, this._maxButtonCount());
         const visible = new Set(windows);
 
         for (const window of this._buttons.keys()) {
