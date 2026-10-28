@@ -1,4 +1,22 @@
-<b><span size="large">Window Taskbar 40.3 (fork)</span></b>
+<b><span size="large">Window Taskbar 40.4 (fork)</span></b>
+
+- Window buttons: the buttons with titles no longer hang off the bottom of the panel.
+  A line of title, the running/focused dash, and the theme's padding, border and margin
+  around them ask for more height than the panel has, and a box
+  layout hands a child the larger number rather than the smaller one - so the bottom of
+  every titled button, its dash included, was drawn below the edge of the screen, and
+  the rows of the panel the button no longer covered were presses on the panel itself,
+  which GNOME Shell 50's panel answers by starting a window move: the click was taken
+  and nothing appeared to happen until the cursor was moved onto the button.
+- Window buttons: the button now spans the panel band, top edge to bottom edge - no
+  vertical margin, no vertical padding - so every row of the panel is a row of the
+  button, and the running/focused dash is visible again at the bottom of it.
+- Window buttons: the indicator strip is sized to what the panel's height leaves over
+  once the title has its line: it shrinks on a short panel and goes away when the panel
+  is too short for a dash at all, instead of pushing the button off the screen.
+- Preferences: changing the panel height restyles the window buttons, since the strip
+  is now sized against it.
+
 
 - Window buttons: the row is sized from what the buttons actually ask for instead of
   from a guess at what a button costs. The padding and the border are read off the

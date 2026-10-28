@@ -92,6 +92,25 @@ per window is too small), `window-title-max-chars` (0 = the whole title),
   `get_min_width()`, `get_max_width()` (verified against the `St-18` typelib; St lives
   in `/usr/lib64/gnome-shell/`, so `GI_TYPELIB_PATH` and `LD_LIBRARY_PATH` both have
   to point there for a host `gjs` to load it).
+* The typelibs of this build, for asking questions of them without a running shell:
+  `Clutter-18` and `Meta-18` are in `/usr/lib64/mutter-18/` (with the libraries),
+  `St-18` and `Shell-18` in `/usr/lib64/gnome-shell/`. A type's properties can be
+  enumerated without a Clutter context - the host's `python3 -c` with `gi.repository.GIRepository`
+  (`Repository.dup_default().require('Clutter', None, 0)`, then `find_by_name('Clutter',
+  'Actor').get_property(i)`); instantiating an actor instead aborts on
+  `_clutter_context_get_default`.
+* **Clutter 18 has no `max-width`/`max-height` property.** The Actor's size properties
+  are `width`/`height` (a fixed size: min and natural together), `min-width`/`min-height`
+  and `natural-width`/`natural-height`, each with a `-set` companion. Two consequences:
+  - assigning `max_width` to an actor is **silently doing nothing** (GJS puts an
+    ordinary JS property on the wrapper when the GObject has no such property), which
+    is why `WindowButton.updateStyle()` caps the title with `max_width` and the panel
+    still measures the row at its full title widths - the cap that works is the
+    measured row and the ellipsization, see "When the panel runs out of room";
+  - `min-width`/`min-height` are not floors, they *are* the request when set: `0` on a
+    label means the box may hand the label less than a line of it, and a large value
+    is the "minimum bigger than what the box has" that Clutter answers by giving the
+    child more than the box has (see "Size requests" and "The panel's height").
 * Clutter 18 (mutter 18) actor signals, from the same typelib: `allocate`,
   `queue-relayout`, `destroy`, the button/scroll/motion events. There is **no**
   `size-change` any more, and `Clutter.init()` does not exist either - the Clutter
@@ -110,11 +129,15 @@ starts with *every* user extension disabled, because mutter finds
 (`value "-1" is invalid or out of range for property 'min-height'`) is the same
 class of mistake.
 
-* Do not set `min_width`/`min_height` on a taskbar child: `WindowButton`
-  applies the width preference as `max_width` on the label plus a small
-  `min_width` (so the button fits the title, is capped there and shrinks with
-  the panel), and `updateStyle()` re-checks min <= natural afterwards and drops
-  the request when that does not hold.
+* The safe direction is one-way only: keep the *minimum* small and let the natural
+  size be what the content asks for. `WindowButton` keeps `min_width`/`min_height` at 0
+  on the label and the icon (in this Clutter those properties *are* the request, not a
+  floor: 0 means the box may hand the child less than a line of it), and what gives way
+  is the indicator strip (`_fitVertical`) or the button's own visibility - never a
+  minimum the panel cannot pay. `max_width`/`max_height` are not properties of Clutter
+  18 at all, so the assignments in `updateStyle()` that read like caps do nothing; the
+  caps that work are the measured row and the label's ellipsization (see "When the
+  panel runs out of room").
 * `scripts/treeshow.py` marks an actor with `min > natural` in the dump, and
   `scripts/hotreload.sh` greps the journal for those complaints right after a
   reload and unloads the build again (writing `build/dev/FAILED`).
@@ -230,6 +253,86 @@ enormous. Clutter never gets a minimum on the label, only a maximum: a box child
 that asks for more than it can get is fatal, and that is covered above in "Size
 requests: these can kill the session".
 
+## The panel's height: the button has to fit inside the band
+
+The width of the row has a budget (`_roomWidth`); so does the height, and it is the
+panel's own. A titled button did not fit it - it hung off the bottom of the screen, and
+a click near the bottom of the panel did nothing at all.
+
+**The band the button has to fit is not the number `main-panel-height` says.**
+`theming.updateStylesheet()` writes `.azTaskbar-panel {height: Npx}` - a class the
+shell's panel is given (`Main.panel.add_style_class_name('azTaskbar-panel')`) - and the
+theme writes `#panel {height: 2.2em}`, an id selector, which outranks it: the same fight
+as `#panel .panel-button` under "When the panel runs out of room". So the height the
+preference asks for never reaches the panel. A screenshot of the 2560 px-wide panel here
+(`main-panel-height` 40, layout scale 1.333, so 1920 px logical) measures the band as
+the last 40 device rows of the screen: the work area ends at y=1560 and the panel's
+background runs to y=1599 - about 30 CSS px, not the 40 the preference asks for.
+
+What a button costs vertically, in CSS px: a line of the panel's title font ~18 px, the
+running/focused strip 8 px (`INDICATOR_HEIGHT`), `#panel .panel-button`'s 3 px border
+per side, `.azTaskbar-BaseIcon`'s 3 px of padding and 2 px of margin per side -
+**18 + 8 + 6 + 6 + 4 = 42 px against a band of ~30 px**. Icons-only buttons (16 px
+instead of a title) fit; a title does not, which is why the bug is a bug of "the buttons
+with titles".
+
+A box layout does not shrink a child below its *minimum*, it hands over the larger
+number, so the button was allocated its full ~42 px starting just below the top of the
+band and its bottom was off the screen. The screenshot says so: the `:active` pill of a
+window button has its rounded top at y=1564, straight sides to y=1599 and no curve at
+the bottom, and the focused window's dash - 8 px of `rgb(53, 132, 228)`, a quarter of
+the button's width, at the bottom edge of the button - is **nowhere on the screen**. The
+button's own icon and title centered at y≈1584.5 against the band's 1580.5.
+
+What that costs a click: the rows of the band the button no longer covers are presses on
+the **panel**, not on the button - and GNOME 50's `Main.panel` carries a
+`Clutter.ClickGesture({recognize_on_press: true})` bound to the target phase
+(`add_action_full('window-drag', TARGET, ...)` in the shell's own panel.js) which answers
+a press on itself by `begin_grab_op(MOVING)` on the window underneath. The press is
+taken, the button never sees a release, and the click looks like nothing happened;
+nudging the cursor up was what got it onto the button.
+
+Both halves of the fix are needed - the stylesheet alone leaves the request over the band:
+
+* `stylesheet.css` gives `.azTaskbar-window-button` **no vertical margin and no vertical
+  padding** (the horizontal 8 px stays, and with it `themeChrome()` and all the width
+  arithmetic), so the button's box can span the band from its top edge to its bottom one;
+* `WindowButton._fitVertical()` spends the band: `room = band - themeChromeHeight()`
+  (padding, border and margin, read off the theme node), the row of icon and title keeps
+  its line but has its floor taken away (`min_height = 0` - in this Clutter that *is* the
+  request, so the box may give the row less than a line of text rather than hand the
+  button more than the band), and the indicator strip takes what that leaves:
+  `INDICATOR_HEIGHT` when the band can pay for it, less when it cannot, hidden below
+  `INDICATOR_MIN_HEIGHT` (the radius the dash is drawn with; below that it is not a dash,
+  and an invisible child asks for nothing).
+
+With the button's minimum under the band, the box's FILL alignment gives it the band and
+nothing more: every row of the band is a row of the button, nothing hangs off the screen,
+and the dash is visible again - thinner than the designed 8 px on a 2.2em panel, by
+whatever the band leaves once the title has its line.
+
+* `_bandHeight()` is the vertical counterpart of `_roomWidth()` and is asked of the panel
+  that does the allocating - the allocation, not the preference, for the reason at the top
+  of this section. An actor that has never been allocated answers with its natural
+  request, so the number is honest before the first pass too;
+* `_fitVertical()` asks the box for its preferred height, and asking an off-stage widget
+  for a size is the shout described under "Style writes to an actor that has no panel
+  yet": the pass returns when `get_stage()` is null, as every other measuring pass here
+  does;
+* `main-panel-height` is now one of the keys that redisplay the list: the panel changing
+  its own height is not a change in the measured *room width*, so `_watchPanelRoom` would
+  never notice it and the buttons would keep a strip sized for the old height;
+* check it by eye: the dash should be visible at the bottom of the button, inside the
+  panel, and the title should be about on the middle line of the band rather than below
+  it.
+
+Left alone for now, and worth knowing: the *favourites* keep `.azTaskbar-BaseIcon`'s
+2 px vertical margin, so an icon-only button still costs 16 + 6 + 6 + 4 = 32 px against
+the ~30 px band and sits a couple of px low - the same mechanism, a few px of dead band
+above the favourites rather than a whole dash off the screen. Zeroing that margin (or
+making the height preference win: `#panel.azTaskbar-panel` in the custom stylesheet) is
+the follow-up.
+
 ## Style writes to an actor that has no panel yet
 
 The window list is created before it has a panel to sit in (`AppIconsTaskbar` builds
@@ -243,6 +346,12 @@ So the list measures and styles itself only while it is on the stage: `_isStaged
 checks that, `updateStyle()` and `_shareRoom()` skip the pass when it is not, and
 `_placeInPanel()` makes the writes again the moment there is a panel to hold them.
 `_naturalWidth()` has the same guard for the measuring side.
+
+The guards cover the writes the fork makes, not every *request* St makes: the same six
+lines also come and go at every `gnome-extensions disable`/`enable` cycle, where the
+actor being unparented is asked for its size on the way out. Six lines per cycle is the
+state of things here, before and after sizing the buttons to the band - the check when
+touching this is that the number does not grow.
 
 ## The window menu, and a window that goes away
 
