@@ -1,2 +1,10 @@
-Upstream: App Icons Taskbar (aztaskbar) v31.4 — https://gitlab.com/AndrewZaech/aztaskbar
-License:   GPL-3.0-or-later (same as upstream, this is a derivative work)
+Window Taskbar (windowtaskbar@italian-brainrot.github.io)
+
+This is a fork of "App Icons Taskbar" (aztaskbar) 31.4
+(https://gitlab.com/AndrewZaech/aztaskbar, "azaech), GPL-3.0-or-later,
+from which the panel, favourite-icon, DnD, preview and preferences code
+is taken. The fork replaces the grouped running-app list with one button
+per open window (with a title) and adds the window-button preferences.
+
+Upstream of the fork base is not affiliated with this fork; any bug in
+this fork is ours.
