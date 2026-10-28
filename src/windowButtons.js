@@ -39,9 +39,9 @@ function colorToString(color) {
 }
 
 function makeColor(rgba) {
-    // GNOME 46 removed Clutter.Color / Clutter.cairo_set_source_color
-    if (Clutter.Color)
-        return Clutter.Color.from_string(rgba)[1] ?? null;
+    // GNOME 46 removed Clutter.Color / Clutter.color_from_string
+    if (Clutter.Color && Clutter.color_from_string)
+        return Clutter.color_from_string(rgba)[1] ?? null;
     return Cogl.Color.from_string(rgba)[1] ?? null;
 }
 
@@ -68,8 +68,9 @@ class WindowTaskbarIndicator extends St.DrawingArea {
 
     _colorForState() {
         const settings = TaskbarManager.settings;
-        const [accentColor, foregroundColor] = global.stage.get_accent_color
-            ? global.stage.get_accent_color()
+        const themeContext = St.ThemeContext.get_for_stage(global.stage);
+        const [accentColor, foregroundColor] = themeContext.get_accent_color
+            ? themeContext.get_accent_color()
             : [null, null];
         const useAccent = settings.get_boolean('indicator-color-use-system-accent-color');
 
@@ -86,8 +87,7 @@ class WindowTaskbarIndicator extends St.DrawingArea {
     }
 
     vfunc_repaint() {
-        const areaWidth = this.width;
-        const areaHeight = this.height;
+        const [areaWidth, areaHeight] = this.get_surface_size();
 
         if (areaWidth <= 0 || areaHeight <= 0)
             return;
@@ -325,15 +325,21 @@ class WindowTaskbarButton extends St.Button {
 
         const maximizeItem = new PopupMenu.PopupMenuItem(_('Maximize'));
         maximizeItem.connect('activate', () => {
+            const flags = Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL;
             if (window.is_maximized())
-                window.unmaximize(Meta.MaximizeFlags.BOTH);
+                window.unmaximize(flags);
             else
-                window.maximize(Meta.MaximizeFlags.BOTH);
+                window.maximize(flags);
         });
         this._menu.addMenuItem(maximizeItem);
 
         const keepAboveItem = new PopupMenu.PopupMenuItem(_('Keep above other windows'));
-        keepAboveItem.connect('activate', () => window.set_above(!window.above));
+        keepAboveItem.connect('activate', () => {
+            if (window.is_above())
+                window.unmake_above();
+            else
+                window.make_above();
+        });
         this._menu.addMenuItem(keepAboveItem);
 
         const toWorkspaceItem = new PopupMenu.PopupMenuItem(_('Move to this workspace'));
@@ -380,6 +386,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         this._workId = Main.initializeDeferredWork(this, () => this.redisplay());
 
+        this.connect('destroy', () => this._destroy());
+
         this._setSettingsConnections();
         this._setShellSignals();
         this.updateStyle();
@@ -389,9 +397,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
     _setSettingsConnections() {
         const styleKeys = ['window-labels', 'window-button-icons', 'window-button-width',
-            'window-label-font-size', 'icon-size', 'taskbar-spacing'];
-        const layoutKeys = ['isolate-workspaces', 'isolate-monitors',
-            'panel-on-all-monitors', 'panel-location'];
+            'window-label-font-size', 'icon-size', 'taskbar-spacing', 'panel-location'];
+        const layoutKeys = ['isolate-workspaces', 'isolate-monitors', 'panel-on-all-monitors'];
 
         this._settings.connectObject('changed::show-running-apps', () => {
             this.visible = this._settings.get_boolean('show-running-apps');
@@ -497,7 +504,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         Main.activateWindow(windows[(index + step + windows.length) % windows.length]);
     }
 
-    vfunc_destroy() {
+    _destroy() {
         this._settings.disconnectObject(this);
         global.display.disconnectObject(this);
         global.window_manager.disconnectObject(this);
@@ -506,7 +513,5 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         for (const button of this._buttons.values())
             button.destroy();
         this._buttons.clear();
-
-        super.vfunc_destroy();
     }
 });
