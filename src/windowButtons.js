@@ -386,7 +386,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this._settings = TaskbarManager.settings;
         this._buttons = new Map();
 
-        this._workId = Main.initializeDeferredWork(this, () => this.redisplay());
+        // (refreshes are queued by queueRedisplay, on the fork's own timer)
 
         this.connect('destroy', () => this._destroy());
 
@@ -395,6 +395,9 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this.updateStyle();
 
         this.visible = this._settings.get_boolean('show-running-apps');
+
+        // ... and the windows that were already open before this list existed
+        this.queueRedisplay();
     }
 
     _setSettingsConnections() {
@@ -438,8 +441,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     queueRedisplay() {
-        if (this._workId)
-            Main.queueDeferredWork(this._workId);
+        Utils.queueRefresh(this, '_refreshId', () => this.redisplay());
     }
 
     /** Windows belonging on this monitor's taskbar, in creation order. */
@@ -511,6 +513,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     _destroy() {
+        Utils.cancelRefresh(this, '_refreshId');
         this._settings.disconnectObject(this);
         global.display.disconnectObject(this);
         global.window_manager.disconnectObject(this);

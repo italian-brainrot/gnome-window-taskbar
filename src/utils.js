@@ -1,11 +1,41 @@
 /* eslint-disable jsdoc/require-jsdoc */
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import {formatDateWithCFormatString} from 'resource:///org/gnome/shell/misc/dateUtils.js';
 
 const [ShellVersion] = Config.PACKAGE_VERSION.split('.').map(s => Number(s));
+
+/**
+ * Queue a taskbar refresh, coalescing the flurry of signals that one window
+ * mapping/unmapping produces into a single rebuild.
+ *
+ * The shell's deferred-work queue (Main.initializeDeferredWork) only runs a
+ * work item for an actor that was already mapped when the item was queued, and
+ * it runs it on a before-redraw later - so a taskbar created when the
+ * extension is enabled mid-session never gets its first fill, and later
+ * refreshes depend on when the shell happens to redraw. A timeout is also what
+ * aztaskbar itself uses for its settings-driven updates (see extension.js).
+ */
+export function queueRefresh(target, key, refresh, delay = 30) {
+    if (target[key])
+        return;
+
+    target[key] = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+        target[key] = 0;
+        refresh();
+        return GLib.SOURCE_REMOVE;
+    });
+}
+
+export function cancelRefresh(target, key) {
+    if (!target[key])
+        return;
+    GLib.source_remove(target[key]);
+    target[key] = 0;
+}
 
 export function getFormattedDate(settings) {
     const [enabled, format] = settings.get_value('override-panel-clock-format').deep_unpack();

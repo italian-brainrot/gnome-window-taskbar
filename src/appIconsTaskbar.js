@@ -61,7 +61,7 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
 
         this._monitor = monitor;
         this.showAppsIcon = new ShowAppsIcon();
-        this._workId = Main.initializeDeferredWork(this, this._redisplay.bind(this));
+        // (the refresh itself is queued by _queueRedisplay, not by the shell)
 
         this.menuManager = new WindowPreviewMenuManager(this);
 
@@ -91,6 +91,11 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
         this.connect('destroy', () => this._destroy());
         this._connectWorkspaceSignals();
         this._updateStyle();
+
+        // aztaskbar fills the taskbar only from signals, and the one that does
+        // it at session start ('startup-complete') has already come and gone
+        // when the extension is enabled later: fill the taskbar right away.
+        this._queueRedisplay();
     }
 
     _setConnections() {
@@ -336,7 +341,7 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
     }
 
     _queueRedisplay() {
-        Main.queueDeferredWork(this._workId);
+        Utils.queueRefresh(this, '_refreshId', () => this._redisplay());
     }
 
     _redisplay() {
@@ -541,6 +546,7 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
     }
 
     _destroy() {
+        Utils.cancelRefresh(this, '_refreshId');
         this._disconnectWorkspaceSignals();
         this.removeWindowPreviewCloseTimeout();
         this.endPointerWatch();
