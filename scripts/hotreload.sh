@@ -121,6 +121,19 @@ if [[ -n $complaints ]]; then
     exit 1
 fi
 
+# 'st_widget_get_theme_node called on the widget ... which is not in the stage' is
+# the fork's own signature: a style was written to an actor that has no panel
+# parent, hence no theme node to write it into. St answers with a NULL node, so
+# nothing is broken, but it is this extension's name in the log at every session
+# start, and the fork guards its own style writes (windowButtons.js _isStaged) -
+# so hearing it is worth a mention, though not the price of a disabled build.
+noise=$({ HOST_EXEC journalctl --user --no-pager --since "@$start_ts" -q || true; } \
+    | grep -E 'st_widget_get_theme_node' || true)
+if [[ -n $noise ]]; then
+    printf 'note: %s wrote a style to an actor that is not in the stage:\n%s\n' \
+        "$DEV_UUID" "$noise" >&2
+fi
+
 if [[ -f $BUILD/dump.json ]]; then
     echo "reloaded iter$iter, dumped state in build/dev/dump.json"
 else

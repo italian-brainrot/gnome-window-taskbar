@@ -44,12 +44,16 @@ case "$ACTION" in
     reload|enable)
         # Do not use 'gnome-extensions pack|install' here: pack honours the
         # repository's .gitignore and drops most of our files. Plain copy is the
-        # whole install. ReloadExtension unloads first (which evicts the GJS
-        # module cache), then re-reads the extension directory.
+        # whole install, and the disable/enable pair below is what reloads it.
+        #
+        # There is deliberately no ReloadExtension D-Bus call: when no service
+        # instance is running that call *activates* one, and the request lands on
+        # an instance which has not exported its interface yet, so it answers
+        # 'Missing handler for DBus method ReloadExtension' and the reload never
+        # happens at all - a failure an '|| true' hid for years. The pair below
+        # does work; an extension whose extension.js failed to import needs a
+        # session restart either way (HACKING.md, 'Dev loop').
         HOST_EXEC gnome-extensions disable "$UUID" || true
-        HOST_EXEC gdbus call --session --dest org.gnome.Shell.Extensions \
-            --object-path /org/gnome/Shell/Extensions \
-            --method org.gnome.Shell.Extensions.ReloadExtension "$UUID" || true
         HOST_EXEC gnome-extensions enable "$UUID"
         ;;
 esac
