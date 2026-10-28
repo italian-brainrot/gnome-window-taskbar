@@ -136,9 +136,11 @@ class WindowTaskbarButton extends St.Button {
         this._tracker = Shell.WindowTracker.get_default();
         this._app = null;
 
+        // St.BoxLayout has no y_fill: vertical fill comes from the child's
+        // y_align/y_expand pair only.
         this._box = new St.BoxLayout({
             y_align: Clutter.ActorAlign.CENTER,
-            y_fill: true,
+            y_expand: true,
         });
 
         this._icon = new St.Icon({
@@ -476,11 +478,15 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             if (!button) {
                 button = new WindowButton(window, this);
                 this._buttons.set(window, button);
-                this.add_child(button);
             }
 
-            if (this.get_child_index(button) !== index)
+            if (button.get_parent() !== this) {
+                this.add_child(button);
+            } else if (this.get_child_index(button) !== index) {
+                // insert_child_at_index will not re-parent an attached child
+                this.remove_child(button);
                 this.insert_child_at_index(button, index);
+            }
         });
 
         this._syncStates();

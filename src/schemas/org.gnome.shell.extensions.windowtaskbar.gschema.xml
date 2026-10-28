@@ -341,11 +341,11 @@
             <summary>Position in the selected panel-box</summary>
         </key>
         <key enum="org.gnome.shell.extensions.windowtaskbar.position-in-panel" name="clock-position-in-panel">
-            <default>'CENTER'</default>
+            <default>'RIGHT'</default>
             <summary>Clock Position in panel. LEFT, CENTER, or RIGHT</summary>
         </key>
         <key type="i" name="clock-position-offset">
-            <default>0</default>
+            <default>1</default>
             <summary>Clock offset position</summary>
         </key>
         <key type="(bi)" name="clock-font-size">

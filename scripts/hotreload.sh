@@ -59,6 +59,8 @@ if [[ ${1:-} == --prefs ]]; then
     HOST_EXEC pkill -TERM -f 'gjs -m /usr/share/gnome-shell/org.gnome.Shell.Extensions' || true
 fi
 
-ls -dt "$BUILD"/iter* | tail -n +4 | xargs -r rm -rf
+# prune by iteration number, not mtime: 'cp -a' preserves the source directory's
+# timestamps, so a freshly copied iteration does not sort as the newest one
+ls -1 "$BUILD" | grep -E '^iter[0-9]+$' | sort -V | head -n -3 | sed "s#^#$BUILD/#" | xargs -r rm -rf
 
 echo "reloaded iter$iter"
