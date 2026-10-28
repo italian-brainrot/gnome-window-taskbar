@@ -1,0 +1,12 @@
+{
+  "name": "Window Taskbar (dev loader)",
+  "description": "Development-only shim: it loads the Window Taskbar code straight out of the project build directory, so the code can be reloaded without restarting the session. Not a taskbar itself.",
+  "uuid": "windowtaskbar-dev@local",
+  "settings-schema": "org.gnome.shell.extensions.windowtaskbar",
+  "shell-version": [
+    "50"
+  ],
+  "url": "https://gitlab.com/AndrewZaech/aztaskbar",
+  "version": 1,
+  "version-name": "dev"
+}

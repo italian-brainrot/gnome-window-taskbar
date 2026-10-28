@@ -42,11 +42,21 @@ case "$ACTION" in
         HOST_EXEC gnome-extensions prefs "$UUID"
         ;;
     reload|enable)
-        # Enabling a fresh copy is enough for the shell to pick it up; 'enable'
-        # is also how we reload after an install (disable + enable).
+        # Do not use 'gnome-extensions pack|install' here: pack honours the
+        # repository's .gitignore and drops most of our files. Plain copy is the
+        # whole install. ReloadExtension unloads first (which evicts the GJS
+        # module cache), then re-reads the extension directory.
         HOST_EXEC gnome-extensions disable "$UUID" || true
+        HOST_EXEC gdbus call --session --dest org.gnome.Shell.Extensions \
+            --object-path /org/gnome/Shell/Extensions \
+            --method org.gnome.Shell.Extensions.ReloadExtension "$UUID" || true
         HOST_EXEC gnome-extensions enable "$UUID"
         ;;
 esac
 
-HOST_EXEC gnome-extensions show "$UUID"  || true
+HOST_EXEC gnome-extensions show "$UUID" 2>/dev/null || true
+
+echo "--- shell errors for $UUID ---"
+HOST_EXEC gdbus call --session --dest org.gnome.Shell.Extensions \
+    --object-path /org/gnome/Shell/Extensions \
+    --method org.gnome.Shell.Extensions.GetExtensionErrors "$UUID" | tr ',' '\n' | head -20

@@ -62,20 +62,37 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
 
 ## Dev loop
 
+GNOME Shell 50.6 scans extension dirs **once, at session start**
+(`ExtensionManager._loadExtensions()`), and it never rescans: there is no rescan
+D-Bus method, and `gnome-extensions install` only drops files in place. Worse, an
+extension whose `extension.js` failed to import keeps the failed module in the
+GJS module cache for the rest of the session, so even a fixed copy is not
+re-imported. Both problems mean: touching a *new* uuid or fixing an import error
+needs a session restart.
+
+So instead of restarting the session per code change, use the dev loader:
+
 ```
-scripts/install.sh            # build + copy to the host user dir + enable
-scripts/logs.sh 300           # gnome-shell/GJS errors from the host journal
+scripts/dev-setup.sh        # one-off: installs windowtaskbar-dev@local (a loader
+                            # extension whose extension.js only imports the code
+                            # from build/dev/iterN/), then ONE session restart
+scripts/hotreload.sh        # build a new iteration + reload it live
+scripts/hotreload.sh --prefs # also restart the prefs service (its module cache
+                            # is dropped when the D-Bus activated service dies)
+scripts/logs.sh 300         # read shell/daemon errors from the host journal
 ```
 
-`src/schemas/gschemas.compiled` is generated at build time (never committed),
-which is why `install.sh` runs `glib-compile-schemas` with the **host's** glib.
+The loader (`dev/loader.js`) reads `build/dev/current` (an iteration number),
+imports `build/dev/iterN/extension.js` from that directory, and passes metadata
+with `dir`/`path` of the iteration directory so the fork finds its own schemas.
 
-Reloading code into the running shell uses the `org.gnome.Shell.Extensions`
-D-Bus methods: `Disable`/`Enable`, and `ReloadExtension` (unloads, evicting the
-GJS module cache, then re-reads the extension directory).
+`dev/rename_classes.py` appends the iteration number to every GObject class name
+in the copied tree. This is required, not cosmetic: GJS registers a GType
+(`Gjs_Foo`) per JS class name and refuses a second registration of the same name,
+so without unique names the reloaded copy fails with `Type name Gjs_Foo is
+already registered`. 38 names are uniquified per iteration; the renamed tree is
+still valid JavaScript.
 
-**Caveat — new extension directories are only scanned at session start.** On
-GNOME 50 the shell enumerates extension dirs once in
-`ExtensionManager._loadExtensions()`; there is no rescan D-Bus API. So the first
-install of a brand new uuid needs one session restart (log out, log back in),
-after which `ReloadExtension` and `Enable`/`Disable` work fine for iteration.
+The loader extension itself never changes code, so its own import is cached and
+unproblematic. To ship: `scripts/install.sh` (real uuid `windowtaskbar@…`), and
+after the next session restart both the fork and the dev loader are usable.
