@@ -1,3 +1,19 @@
+<b><span size="large">Window Taskbar 40.2 (fork)</span></b>
+
+- Window buttons: the blank tail that keeps the buttons from jumping is always the
+  last item of the list, so the room the buttons do not use stays behind them instead
+  of between the favourites and the first button.
+- Window buttons: no more "widget is not in the stage" about styles in the log at
+  session start; the list styles itself only once it is in the panel.
+- Window buttons: the window menu closes itself, and its items go quiet, when the
+  window is closed while that menu is open.
+- Secondary monitors: the window list sizes itself to the room the panel it lives in
+  can really give it, rather than to the room the top panel gives it.
+- Preferences: the options that did nothing any more are out of the settings schema
+  (the update notifier, and the switch for the running/window indicator).
+
+<b><span size="large">Upstream, App Icons Taskbar (aztaskbar) - fork base 31.4</span></b>
+
 <b><span size="large">v31.4</span></b>
 
 - Add GNOME 51 support.
