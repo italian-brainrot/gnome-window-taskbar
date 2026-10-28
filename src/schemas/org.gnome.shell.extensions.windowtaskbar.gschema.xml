@@ -306,11 +306,11 @@
             <summary>Show tool-tips for AppIcons</summary>
         </key>
         <key type="i" name="icon-size">
-            <default>20</default>
-            <summary>Icon size for the AppIcons</summary>
+            <default>16</default>
+            <summary>Icon size for the AppIcons (the window buttons use it too)</summary>
         </key>
         <key type="i" name="icon-padding-horizontal">
-            <default>8</default>
+            <default>5</default>
             <summary>Horizontal padding for the AppIcons</summary>
         </key>
         <key type="i" name="taskbar-spacing">
