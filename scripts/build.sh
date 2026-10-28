@@ -17,6 +17,10 @@ else
     glib-compile-schemas --strict src/schemas
 fi
 
+# Parse with the host GJS before anything is copied: the shell refuses files that
+# node waves through, and an extension that fails to import sits in State.ERROR.
+bash scripts/check-syntax.sh
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 cp -a src/. "$OUT/"
