@@ -62,6 +62,12 @@ const BUTTON_CHROME_HEIGHT = 6;
 // stylesheet.css), again only for the pass with no theme node to read.
 const BUTTON_ROW_WIDTH = 9;
 
+// The blank ends of the window list: one before the buttons and one after them
+// (WindowsList._spacerLead and _spacer). They are children of the row like the
+// buttons are, so each of them costs a gap in what the row asks for, and every
+// count of the row's children has to include them.
+const ROW_SPACERS = 2;
+
 // How long the press has to be held before a window button comes loose from the
 // row and becomes a drag. The same threshold the favourite AppIcons use
 // (appIcon.js), so a click stays a click on either kind of button.
@@ -775,16 +781,25 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         this._panel = null;
         this._measuredRoom = -1;
 
-        // Blank tail that eats whatever room the buttons do not use: the list
+        // Blank ends that eat whatever room the buttons do not use: the list
         // then always asks for the full width the panel can give it, so the
-        // buttons stay where they are as windows come and go, and the panel's
-        // symmetric box sizing keeps the status area in one piece. It is the
-        // *last* child, and it stays that way (see redisplay), because the room
-        // it eats up is meant to be after the buttons, not between them.
+        // buttons stay put as windows come and go, and the panel's symmetric box
+        // sizing keeps the status area in one piece. The room they eat is split
+        // between them (_shareRoom), which is what puts the buttons in the middle
+        // of that room instead of against the favourites.
+        //
+        // They are the *first* and the *last* child, and they stay that way (see
+        // redisplay), because the room they eat up is meant to be outside the
+        // buttons, not between them.
+        this._spacerLead = new St.Widget({
+            style_class: 'azTaskbar-window-list-spacer',
+            y_align: Clutter.ActorAlign.FILL,
+        });
         this._spacer = new St.Widget({
             style_class: 'azTaskbar-window-list-spacer',
             y_align: Clutter.ActorAlign.FILL,
         });
+        this.add_child(this._spacerLead);
         this.add_child(this._spacer);
 
         // The drop target for a drag along the row. DND asks the _delegate of the
@@ -1041,7 +1056,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      *
      * ClutterBoxLayout leaves an invisible child and the gap after it out of its
      * request, so the number of children here is the number that are shown - the
-     * blank tail counted with them.
+     * two blank ends counted with them (_shareRoom keeps both shown as long as
+     * there are buttons, whatever width it gives them).
      */
     _rowPaddingBorder() {
         const node = this._isStaged() ? this.get_theme_node() : null;
@@ -1050,6 +1066,27 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         return Math.round([St.Side.LEFT, St.Side.RIGHT].reduce(
             (sum, side) => sum + node.get_padding(side) + node.get_border_width(side), 0));
+    }
+
+    /**
+     * What the row's own padding and border are asymmetric by: how much further
+     * the buttons stand from the row's left edge than from its right one. The
+     * separator line in front of the buttons is what makes them unequal
+     * (stylesheet.css puts a padding-left and a border-left on the row and
+     * nothing on the right), and centring is about the buttons, not about the box
+     * that happens to hold them: without paying this back, a centred row sits a
+     * few pixels left of the panel's middle line.
+     *
+     * The constant is the same fallback _rowPaddingBorder() uses, spent entirely
+     * on the left, because that is what the fork's stylesheet does.
+     */
+    _rowIndent() {
+        const node = this._isStaged() ? this.get_theme_node() : null;
+        if (!node)
+            return BUTTON_ROW_WIDTH;
+
+        const side = s => node.get_padding(s) + node.get_border_width(s);
+        return Math.round(side(St.Side.LEFT) - side(St.Side.RIGHT));
     }
 
     _rowChrome(children) {
@@ -1061,7 +1098,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     _rowWidth(buttons, count) {
         const width = buttons.slice(0, count)
             .reduce((sum, button) => sum + this._naturalWidth(button), 0);
-        return width + this._rowChrome(count + 1);
+        return width + this._rowChrome(count + ROW_SPACERS);
     }
 
     /**
@@ -1078,9 +1115,9 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         for (const button of buttons) {
             // every button brings its own width and the gap after it; the blank
-            // tail then fills whatever is left
+            // ends then fill whatever is left, and each of them costs a gap too
             const width = this._naturalWidth(button);
-            if (used + width + spacing * (count + 1) > room)
+            if (used + width + spacing * (count + ROW_SPACERS) > room)
                 break;
 
             used += width;
@@ -1109,6 +1146,14 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      * Both levers take requests away, and that direction is the safe one: a child
      * insisting on a minimum the box cannot give is the request Clutter answers by
      * aborting the shell (see "Size requests" in HACKING.md).
+     *
+     * What the buttons leave over goes to the two blank ends of the row, split as
+     * evenly as an odd pixel allows. The row is the whole room the centre box has,
+     * and both panels keep that room centred on the panel (a side box is never
+     * allocated less than it insists on, and the room is what is left once the
+     * wider of the two has what it asks for), so an even split is what puts the
+     * buttons under the panel's middle line, where the clock is, instead of hard
+     * against the favourites with all the unused room behind them.
      */
     _shareRoom() {
         // no stage, no panel to take the room from, and no theme node to measure
@@ -1123,13 +1168,15 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         // the buttons in the order the row lays them out, so that giving up on a
         // button means giving up on the last one of the row, not on the last one
         // the map happens to hold
-        const buttons = this.get_children().filter(child => child !== this._spacer);
+        const buttons = this.get_children().filter(child => !this._isSpacer(child));
         const settings = this._settings;
         const preference = settings.get_int('window-button-width');
 
         if (room < 0 || buttons.length === 0) {
-            this._spacer.visible = false;
-            this._spacer.style = '';
+            for (const spacer of [this._spacerLead, this._spacer]) {
+                spacer.visible = false;
+                spacer.style = '';
+            }
             return;
         }
 
@@ -1142,7 +1189,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         let shown = buttons.length;
 
         for (;;) {
-            const each = Math.floor(Math.max(0, room - this._rowChrome(shown + 1)) / shown);
+            const each = Math.floor(Math.max(0, room - this._rowChrome(shown + ROW_SPACERS)) / shown);
             const cap = preference > 0 ? Math.min(preference, each) : each;
 
             buttons.forEach((button, index) => {
@@ -1165,12 +1212,27 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             }
         }
 
-        // the blank tail eats the room the buttons do not use, so the buttons do
-        // not jump as windows come and go: a fixed width rather than a minimum,
+        // What the buttons leave over is split between the two blank ends, so the
+        // row is centred rather than left-packed - and so that the buttons do not
+        // jump as windows come and go. A fixed width rather than a minimum,
         // because a child with a minimum and no natural size of its own is exactly
-        // what Clutter refuses to fit in a box
+        // what Clutter refuses to fit in a box; and both ends stay shown even at
+        // 0 px, because a hidden child would take its gap out of the row's request
+        // too, and the numbers above have already spent that gap.
+        //
+        // The split is not quite in half: the row's own chrome sits on its left
+        // only (the separator line in front of the buttons), so the box being
+        // centred is not yet the buttons being centred - the lead end gives that
+        // much of its share to the tail (see _rowIndent).
+        const leftover = Math.max(0, room - this._rowWidth(buttons, shown));
+        const lead = Math.max(0, Math.min(leftover,
+            Math.floor((leftover - this._rowIndent()) / 2)));
+        const tail = leftover - lead;
+
+        this._spacerLead.visible = true;
         this._spacer.visible = true;
-        this._spacer.style = `width: ${Math.max(0, room - this._rowWidth(buttons, shown))}px;`;
+        this._spacerLead.style = `width: ${lead}px;`;
+        this._spacer.style = `width: ${tail}px;`;
     }
 
     /**
@@ -1299,6 +1361,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         this._placeInPanel();
         this._pruneOrder();
+        this._keepEnds();
 
         // the room decides how many buttons there may be (see _maxButtonCount);
         // the windows beyond that are the overview's business, not the taskbar's
@@ -1319,29 +1382,23 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             }
 
             if (button.get_parent() !== this) {
-                // A new button goes to the index it belongs at, not to the tail:
-                // the tail is the blank spacer's place, and appending behind it
-                // puts the unused room between the favourites and the button
-                // until the next pass repairs the order. insert_child_at_index
-                // does take an unattached child, and clamps an index past the
-                // last child rather than refusing it.
-                this.insert_child_at_index(button, index);
-            } else if (this._indexOf(button) !== index) {
+                // A new button goes to the slot it belongs at, not to the tail:
+                // the tail is a blank end's place, and appending behind it puts
+                // the unused room in front of the button until the next pass
+                // repairs the order. insert_child_at_index does take an
+                // unattached child, and clamps an index past the last child
+                // rather than refusing it.
+                this.insert_child_at_index(button, this._slot(index));
+            } else if (this._indexOf(button) !== this._slot(index)) {
                 // insert_child_at_index will not re-parent an attached child
                 this.remove_child(button);
-                this.insert_child_at_index(button, index);
+                this.insert_child_at_index(button, this._slot(index));
             }
         });
 
-        // ... and the spacer is the last of them: it is there to swallow the
-        // room the buttons do not use, which is only after the buttons. It was
-        // already there, so it is taken out and put back at the end rather than
-        // inserted, because insert_child_at_index refuses a child that is still
-        // attached; and appending is what add_child is for.
-        if (this._indexOf(this._spacer) !== this.get_n_children() - 1) {
-            this.remove_child(this._spacer);
-            this.add_child(this._spacer);
-        }
+        // ... and the blank ends are back at the ends, whatever the moving about
+        // above did to them (it should do nothing: every button has its own slot)
+        this._keepEnds();
 
         this._syncStates();
         this._shareRoom();
@@ -1350,6 +1407,38 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     /** Which child number this actor is, or -1 when it is not a child at all. */
     _indexOf(child) {
         return this.get_children().indexOf(child);
+    }
+
+    /** Either blank end of the row: a child, but not a window (see _shareRoom). */
+    _isSpacer(child) {
+        return child === this._spacer || child === this._spacerLead;
+    }
+
+    /**
+     * Which child holds the button of the window at row position `index`: the
+     * lead blank end is always the first child, so the buttons start at 1. The
+     * indexes _dropIndex answers with are child indexes too, so the two agree.
+     */
+    _slot(index) {
+        return index + 1;
+    }
+
+    /**
+     * Put the blank ends back at the ends, if anything moved them. A blank end
+     * between the buttons would hand the room it eats up to the middle of the
+     * taskbar, and the buttons would not sit where the row says they do.
+     */
+    _keepEnds() {
+        if (this._indexOf(this._spacerLead) !== 0) {
+            // insert_child_at_index refuses a child that is still attached
+            this.remove_child(this._spacerLead);
+            this.insert_child_at_index(this._spacerLead, 0);
+        }
+
+        if (this._indexOf(this._spacer) !== this.get_n_children() - 1) {
+            this.remove_child(this._spacer);
+            this.add_child(this._spacer);
+        }
     }
 
     /**
@@ -1402,9 +1491,9 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      * on the right half after it - which is what makes the row move under the
      * pointer as it passes the middle of a neighbour.
      *
-     * The blank tail is stepped over (it is not a window) and so are the buttons
-     * the room has no space for: a child the box layout does not lay out has no
-     * allocation worth trusting (see _shareRoom).
+     * The blank ends are stepped over (they are not windows) and so are the
+     * buttons the room has no space for: a child the box layout does not lay out
+     * has no allocation worth trusting (see _shareRoom).
      */
     _dropIndex(x) {
         const children = this.get_children();
@@ -1414,7 +1503,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         for (let i = 0; i < children.length; i++) {
             const child = children[i];
-            if (child === this._spacer || !child.visible)
+            if (this._isSpacer(child) || !child.visible)
                 continue;
 
             const {x1, x2} = child.allocation;
@@ -1438,7 +1527,8 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      *
      * A button moving to the right leaves its old place behind, so where it lands
      * is one before where it was aimed; and the index is clamped to the children
-     * there are, because the blank tail keeps the last child's place (redisplay).
+     * there are, because the blank ends keep the first and the last child's place
+     * (redisplay, _keepEnds).
      */
     _moveButton(button, index) {
         const children = this.get_children();
@@ -1446,7 +1536,9 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         if (from === -1)
             return false;
 
-        let target = Math.max(0, Math.min(index, children.length - 1));
+        // the lead blank end keeps the first child's place: a button never goes
+        // in front of it, and the tail never gets one after it either
+        let target = Math.max(this._slot(0), Math.min(index, children.length - 1));
         if (from < target)
             target -= 1;
 
@@ -1467,7 +1559,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      */
     _commitOrder() {
         this._order = this.get_children()
-            .filter(child => child !== this._spacer)
+            .filter(child => !this._isSpacer(child))
             .map(child => child.metaWindow);
     }
 

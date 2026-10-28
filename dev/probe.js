@@ -167,10 +167,16 @@ function windowListDump(list) {
             room: list._measuredRoom,
             panel: list._panel?.constructor?.name ?? null,
             rowPaddingBorder: list._rowPaddingBorder?.(),
+            rowIndent: list._rowIndent?.(),
             rowChrome2: list._rowChrome?.(2),
             buttonChrome: list._buttonChromeWidth?.(),
             iconWidth: list._buttonIconWidth?.(),
             maxButtons: list._maxButtonCount?.(),
+            // the room the buttons do not use, and how _shareRoom split it between
+            // the two blank ends (that split is what centres the row)
+            spacerLead: list._spacerLead?.style ?? null,
+            spacerLeadVisible: list._spacerLead?.visible ?? null,
+            spacerLeadNat: list._naturalWidth?.(list._spacerLead),
             spacer: list._spacer?.style ?? null,
             spacerVisible: list._spacer?.visible ?? null,
             spacerNat: list._naturalWidth?.(list._spacer),
@@ -189,7 +195,7 @@ function windowListDump(list) {
             spacing: list._settings?.get_int('taskbar-spacing'),
         },
         // every button as the layout sees it
-        buttonWidths: list.get_children().filter(c => c !== list._spacer).map(b => ({
+        buttonWidths: list.get_children().filter(c => !list._isSpacer?.(c)).map(b => ({
             title: (b.metaWindow?.get_title() ?? '').slice(0, 30),
             visible: b.visible,
             nat: b.get_preferred_width?.(-1)?.[1],

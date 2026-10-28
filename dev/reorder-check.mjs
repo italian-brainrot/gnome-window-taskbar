@@ -51,7 +51,8 @@ const DND = {
 const methods = Object.entries(
     new Function('WindowButton', 'DND', 'global',
         `return {${['handleDragOver', 'acceptDrop', '_dropIndex', '_moveButton',
-            '_commitOrder', '_compareWindows', '_pruneOrder']
+            '_commitOrder', '_compareWindows', '_pruneOrder', '_isSpacer', '_slot',
+            '_indexOf', '_keepEnds']
             .map(extract).join(',')}};`)(WindowButton, DND, {
             // a window that is gone has no actor left (HACKING.md, "API notes":
             // mutter 18 has no is_destroyed to ask a window with)
@@ -83,24 +84,43 @@ class Button extends WindowButton {
     }
 }
 
-/** A window list: buttons at BUTTON_WIDTH each, and the blank tail at the end. */
+/**
+ * A window list: buttons at BUTTON_WIDTH each, and the two blank ends the real
+ * row has (windowButtons.js _spacerLead / _spacer). `lead` is the width of the
+ * blank end in front of the buttons, which is what centres the row; 0 means the
+ * buttons fill the row, which is the case the x values below are written for.
+ */
 class List {
-    constructor(names) {
+    constructor(names, lead = 0) {
         this._children = names.map(name => new Button(name, this));
-        this._spacer = {label: 'tail'};
+        this._spacerLead = {label: 'lead', visible: true};
+        this._spacer = {label: 'tail', visible: true};
+        this._children.unshift(this._spacerLead);
         this._children.push(this._spacer);
+        this._leadWidth = lead;
         this._order = [];
         for (const [name, method] of methods)
             this[name] = method;
         this.layout();
     }
 
+    _widthOf(child) {
+        if (child === this._spacerLead)
+            return this._leadWidth;
+        if (child === this._spacer)
+            return 200;
+        return 100;
+    }
+
     layout() {
-        const BUTTON_WIDTH = 100, SPACING = 10, PADDING = 9;
+        const SPACING = 10, PADDING = 9;
         let x = PADDING;
         for (const child of this._children) {
-            child.allocation = {x1: x, x2: x + (child === this._spacer ? 200 : BUTTON_WIDTH)};
-            x += BUTTON_WIDTH + SPACING;
+            const width = this._widthOf(child);
+            child.allocation = {x1: x, x2: x + width};
+            // a shown child costs its width and the gap after it, blank ends
+            // included - that is what _rowChrome counts
+            x += width + SPACING;
         }
     }
 
@@ -121,7 +141,17 @@ class List {
         this._children.splice(Math.min(index, this._children.length), 0, child);
     }
 
-    /** The row as it is laid out, titles and the blank tail. */
+    add_child(child) {
+        if (this._children.includes(child))
+            throw new Error('add_child: Clutter refuses an attached child');
+        this._children.push(child);
+    }
+
+    get_n_children() {
+        return this._children.length;
+    }
+
+    /** The row as it is laid out: both blank ends and the buttons between them. */
     row() {
         return this.get_children().map(c => c.label).join(' ');
     }
@@ -135,27 +165,36 @@ function check(what, got, want) {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}: ${got}${ok ? '' : `  (want ${want})`}`);
 }
 
-const row = (list, x) => (list.handleDragOver(list._children[0], null, x), list.row());
+// the first button of the row: the child before it is the blank lead end
+const first = list => list._children[1];
+const row = (list, x) => (list.handleDragOver(first(list), null, x), list.row());
 
 // --- where a drop lands ----------------------------------------------------
 let l = new List(['A', 'B', 'C']);
-check('A past the middle of B', row(l, 175), 'B A C tail');
+check('A past the middle of B', row(l, 185), 'lead B A C tail');
 check('  ... the order it commits', (l._commitOrder(), l._order.map(w => w.name).join('')), 'BAC');
-check('A on its own middle stays', row(new List(['A', 'B', 'C']), 55), 'A B C tail');
-check('A before the middle of B stays', row(new List(['A', 'B', 'C']), 115), 'A B C tail');
-check('C at the front', (l = new List(['A', 'B', 'C']), l.handleDragOver(l._children[2], null, 10), l.row()), 'C A B tail');
-check('A into the blank tail', row(new List(['A', 'B', 'C']), 420), 'B C A tail');
-check('B onto the first button', (l = new List(['A', 'B', 'C']), l.handleDragOver(l._children[1], null, 12), l.row()), 'B A C tail');
+check('A on its own middle stays', row(new List(['A', 'B', 'C']), 65), 'lead A B C tail');
+check('A before the middle of B stays', row(new List(['A', 'B', 'C']), 125), 'lead A B C tail');
+check('C at the front', (l = new List(['A', 'B', 'C']), l.handleDragOver(l._children[3], null, 10), l.row()), 'lead C A B tail');
+check('A into the blank tail', row(new List(['A', 'B', 'C']), 430), 'lead B C A tail');
+check('B onto the first button', (l = new List(['A', 'B', 'C']), l.handleDragOver(l._children[2], null, 22), l.row()), 'lead B A C tail');
+
+// the blank lead end is not a drop target of its own: a drop inside it lands on
+// the first button, and a button never moves in front of it (l._slot(0))
+l = new List(['A', 'B', 'C'], 200);
+check('A inside the lead end stays first', row(l, 100), 'lead A B C tail');
+check('C inside the lead end goes first', (l = new List(['A', 'B', 'C'], 200), l.handleDragOver(l._children[3], null, 100), l.row()), 'lead C A B tail');
+check('  ... and C onto the left half of B swaps them', (l = new List(['A', 'B', 'C'], 200), l.handleDragOver(l._children[3], null, 350), l.row()), 'lead A C B tail');
 
 // the buttons the room has no space for (hidden, no allocation to trust) stay
 // behind the ones it has, instead of swapping with the dragged one
 l = new List(['A', 'B', 'C', 'D']);
-l._children[3].visible = false;
-check('A past the last shown button', row(l, 900), 'B C A D tail');
+l._children[4].visible = false;
+check('A past the last shown button', row(l, 900), 'lead B C A D tail');
 check('  ... and the hidden one is kept', (l._commitOrder(), l._order.map(w => w.name).join('')), 'BCAD');
 l = new List(['A', 'B', 'C', 'D']);
-l._children[3].visible = false;
-check('A on the right edge of C', row(l, 320), 'B C A D tail');
+l._children[4].visible = false;
+check('A on the right edge of C', row(l, 330), 'lead B C A D tail');
 
 // --- whose drag this is ----------------------------------------------------
 l = new List(['A', 'B']);
@@ -166,8 +205,15 @@ const foreign = new WindowButton();
 foreign._list = otherList;
 l = new List(['A', 'B']);
 check("another monitor's button", l.handleDragOver(foreign, null, 20), DND.DragMotionResult.CONTINUE);
-check('this row\'s button', l.handleDragOver(l._children[0], null, 20), DND.DragMotionResult.MOVE_DROP);
-check('  ... and the drop is accepted', l.acceptDrop(l._children[0], null, 20), true);
+check('this row\'s button', l.handleDragOver(first(l), null, 20), DND.DragMotionResult.MOVE_DROP);
+check('  ... and the drop is accepted', l.acceptDrop(first(l), null, 20), true);
+
+// --- the blank ends keep the ends ------------------------------------------
+// (the split that centres the row is only a split if the blank ends are outside
+// the buttons: a blank end between them hands the spare room to the middle)
+check('a lead end pushed into the row comes back', (l = new List(['A', 'B']), l.remove_child(l._spacerLead), l.insert_child_at_index(l._spacerLead, 2), l._keepEnds(), l.row()), 'lead A B tail');
+check('a tail end pushed into the row comes back', (l = new List(['A', 'B']), l.remove_child(l._spacer), l.insert_child_at_index(l._spacer, 1), l._keepEnds(), l.row()), 'lead A B tail');
+check('  ... and the button order is untouched', (l = new List(['A', 'B']), l._keepEnds(), l._commitOrder(), l._order.map(w => w.name).join('')), 'AB');
 
 // --- the order the row keeps ----------------------------------------------
 const w = (name, seq) => new MetaWindow(name, seq);

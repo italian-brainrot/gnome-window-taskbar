@@ -20,8 +20,9 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
    than left unused, because a prefs page full of options that do nothing is worse than
    a stale dconf entry.
 2. **No grouping + window titles** (`windowButtons.js`): a `WindowsList`
-   (`St.BoxLayout`) lives inside aztaskbar's `mainBox`, inserted right after the
-   favourite `AppIcon`s. Every window on the current workspace (also minimized
+   (`St.BoxLayout`) lives in the panel's **centre box** rather than among the
+   favourite `AppIcon`s - see "Where the window list lives, and how much room titles
+   have" for why. Every window on the current workspace (also minimized
    ones) gets one button: window icon + title, and the aztaskbar indicator dash only
    once the titles have given way to icons.
    `appIconsTaskbar._redisplay()` is patched so the list survives a redisplay and
@@ -46,6 +47,10 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
   moved
 * room: the titles give way to icons when the panel has no room for them, and the
   list never asks for more than the panel has - see "When the panel runs out of room"
+* position: the row sits in the middle of the panel, on the same middle line the clock
+  is on, and grows outwards from there as windows come and go; it stops at the
+  favourites on the left and the status area on the right - see "Where the window list
+  lives, and how much room titles have"
 * the running/focused dash is **not** drawn under a button that shows a title - see
   "The titled button wears no dash"; the favourites keep theirs, and an icon-only
   window button wears one like a favourite does
@@ -186,15 +191,37 @@ the favourites and the status area is, and shares that room out:
 * each button's width cap = `window-button-width` preference, or the room
   divided by the number of windows, whichever is smaller (`_shareRoom`), so many
   windows means ellipsized titles rather than a squeezed status area;
-* a blank tail (`_spacer`, a fixed `width` and nothing more) brings the list's
-  natural width up to the full room, so the buttons do not jump as windows come and
-  go - and it is always the *last* child: `redisplay` inserts the buttons at their
-  own index instead of appending, which would put the tail in front of the buttons
-  and hand the unused room to the middle of the taskbar.
+* two blank ends (`_spacerLead` in front of the buttons and `_spacer` behind them,
+  each a fixed `width` and nothing more) bring the list's natural width up to the full
+  room, so the buttons do not jump as windows come and go, and they split what the
+  buttons do not use **evenly**, which is what centres the row. The room is what is
+  left once the *wider* of the two side boxes has what it asks for, so on the shell's
+  own panel it is itself centred on the panel and an even split puts the buttons on the
+  panel's middle line, where the clock is - instead of hard against the favourites with
+  all the spare room behind them. `_shareRoom` hands the lead end the row's own left
+  padding and border back (`_rowIndent`): that chrome sits inside the box on the left
+  only, and the centring is about the buttons, not about the box holding them.
+  They are always the *first* and the *last* child (`_keepEnds`): `redisplay` inserts
+  the buttons at their own slot (`_slot`, one past the lead end) instead of appending,
+  which would put a blank end in front of the buttons and hand the unused room to the
+  middle of the taskbar.
+
+Two cases where "the middle of the room" is not the middle of the panel, both of them
+the room's fault rather than the split's: on the fork's own panel a left box wider than
+the status area keeps its own natural width and pushes the room right (`Panel.vfunc_allocate`
+hands a box the room the other one does not need), and on a secondary monitor with the
+clock moved *into* the centre box (`clock-position-in-panel = CENTER`) the room is what
+is left after the clock. On the primary monitor with the default clock position the two
+are the same line.
 
 Numbers from a 1920 px panel (2560x1600 at 1.333x): left box 308 px (Show-Apps +
 10 favourite icons at 16 px), centre box 1056 px, right box 432 px (clock, quick
-settings). The window list gets the full 1056 px.
+settings). The window list gets the full 1056 px, x=432 to x=1488, and that room is
+itself centred on the panel's middle at x=960. Three buttons of 150 px, plus the row's
+own 9 px of padding and border, leave 597 px over: `_shareRoom` gives 294 of it to the
+lead end and 303 to the tail, and the buttons sit at x=735..1185 - centred on 960. With
+a blank tail only they sat at x=441..891, hard against the favourites, with 597 px of
+empty panel behind them.
 
 ## When the panel runs out of room
 
