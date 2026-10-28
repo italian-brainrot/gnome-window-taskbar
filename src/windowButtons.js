@@ -552,6 +552,12 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     updateStyle() {
+        // the list is styled before it has a panel to sit in at session start,
+        // and an actor with no stage has no theme node to write into (see
+        // _isStaged): _placeInPanel styles again once the list is in the panel
+        if (!this._isStaged())
+            return;
+
         this.style = `spacing: ${this._settings.get_int('taskbar-spacing')}px;`;
     }
 
@@ -589,6 +595,21 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         return sizes ? Math.round(sizes[1]) : 0;
     }
 
+    /**
+     * Whether this list is inside a stage, i.e. inside a panel already.
+     *
+     * Writing a style to an actor that is not on the stage makes St shout
+     * 'st_widget_get_theme_node called on the widget ... which is not in the
+     * stage' for every write - the answer is a NULL node, so nothing breaks, but
+     * it is this fork's name in the log at every session start. The style is
+     * remembered anyway and applied when the actor does land on the stage, so
+     * the guarded writes are made again from _placeInPanel, once there is a
+     * panel to hold them.
+     */
+    _isStaged() {
+        return this.get_stage() !== null;
+    }
+
     _placeInPanel(via = null) {
         const centerBox = this._panelAncestor(via)?._centerBox;
         if (!centerBox || this.get_parent() === centerBox)
@@ -601,6 +622,16 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             parent.remove_child(this);
 
         centerBox.add_child(this);
+
+        // the styling and the rooming were skipped while the list was off the
+        // stage (see _isStaged); they are made here, where there is a panel
+        // again to measure the room against and a stage to take a theme node
+        // from. redisplay() ends with _shareRoom() anyway, and the fork's own
+        // panel allocates the centre box from its natural width, so the list
+        // that lands here has to say how wide it wants to be right away.
+        this.updateStyle();
+        this._shareRoom();
+
         return true;
     }
 
@@ -625,6 +656,11 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
      * blank tail.
      */
     _shareRoom() {
+        // no stage, no panel to take the room from, and no theme node to write
+        // the spacer's width into (see _isStaged)
+        if (!this._isStaged())
+            return;
+
         const room = this._roomWidth();
         const count = this._buttons.size;
         const settings = this._settings;
