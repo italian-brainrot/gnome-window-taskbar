@@ -486,7 +486,9 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
         // Blank tail that eats whatever room the buttons do not use: the list
         // then always asks for the full width the panel can give it, so the
         // buttons stay where they are as windows come and go, and the panel's
-        // symmetric box sizing keeps the status area in one piece.
+        // symmetric box sizing keeps the status area in one piece. It is the
+        // *last* child, and it stays that way (see redisplay), because the room
+        // it eats up is meant to be after the buttons, not between them.
         this._spacer = new St.Widget({
             style_class: 'azTaskbar-window-list-spacer',
             y_align: Clutter.ActorAlign.FILL,
@@ -734,16 +736,37 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
             }
 
             if (button.get_parent() !== this) {
-                this.add_child(button);
-            } else if (this.get_children().indexOf(button) !== index) {
+                // A new button goes to the index it belongs at, not to the tail:
+                // the tail is the blank spacer's place, and appending behind it
+                // puts the unused room between the favourites and the button
+                // until the next pass repairs the order. insert_child_at_index
+                // does take an unattached child, and clamps an index past the
+                // last child rather than refusing it.
+                this.insert_child_at_index(button, index);
+            } else if (this._indexOf(button) !== index) {
                 // insert_child_at_index will not re-parent an attached child
                 this.remove_child(button);
                 this.insert_child_at_index(button, index);
             }
         });
 
+        // ... and the spacer is the last of them: it is there to swallow the
+        // room the buttons do not use, which is only after the buttons. It was
+        // already there, so it is taken out and put back at the end rather than
+        // inserted, because insert_child_at_index refuses a child that is still
+        // attached; and appending is what add_child is for.
+        if (this._indexOf(this._spacer) !== this.get_n_children() - 1) {
+            this.remove_child(this._spacer);
+            this.add_child(this._spacer);
+        }
+
         this._syncStates();
         this._shareRoom();
+    }
+
+    /** Which child number this actor is, or -1 when it is not a child at all. */
+    _indexOf(child) {
+        return this.get_children().indexOf(child);
     }
 
     /** Scroll wheel over a window button cycles through the windows. */
