@@ -66,6 +66,14 @@ function describeActor(actor, depth = 0, maxDepth = 6) {
         // warning Clutter tolerates: it asserts and takes the shell down.
         node.violation = node.minW > node.natW;
     }
+    // ... and the height is what says whether an actor fits the panel it sits in:
+    // a natural height over the band is a box handing the child more than it has,
+    // which is a button hanging off the bottom of the screen (HACKING.md).
+    const height = actor.get_preferred_height?.(-1);
+    if (height) {
+        node.minH = Math.round(height[0]);
+        node.natH = Math.round(height[1]);
+    }
     void Clutter;
 
     const children = actor.get_children?.() ?? [];
@@ -163,6 +171,11 @@ function windowListDump(list) {
             listNat: list._naturalWidth?.(list),
             natural: list.get_preferred_width?.(-1),
             minimum: list.get_preferred_width?.(-1)?.[0],
+            // the vertical budget: the panel's own height, and what the list asks
+            // for against it (see WindowButton._fitVertical)
+            band: list._bandHeight?.(),
+            bandNat: list.get_preferred_height?.(-1)?.[1],
+            panelHeight: list._panelAncestor?.()?.get_height?.() ?? null,
             labels: list._settings?.get_boolean('window-labels'),
             autoHide: list._settings?.get_boolean('window-labels-auto-hide'),
             icons: list._settings?.get_boolean('window-button-icons'),
@@ -177,9 +190,21 @@ function windowListDump(list) {
             min: b.get_preferred_width?.(-1)?.[0],
             chrome: b.themeChrome?.(),
             labelVisible: b._label?.visible,
+            // labelMax reads back what updateStyle wrote, and that property is
+            // inert on Clutter 18 (HACKING.md, "API notes") - the number is on the
+            // JS wrapper, not on the actor
             labelMax: b._label?.max_width,
             labelNat: b._label?.get_preferred_width?.(-1)?.[1],
             w: Math.round(b.get_width?.() ?? -1),
+            // vertical: the box's own height against what the button asks for
+            h: Math.round(b.get_height?.() ?? -1),
+            minH: b.get_preferred_height?.(-1)?.[0],
+            natH: b.get_preferred_height?.(-1)?.[1],
+            chromeH: b.themeChromeHeight?.(),
+            rowNatH: b._box?.get_preferred_height?.(-1)?.[1],
+            labelNatH: b._label?.get_preferred_height?.(-1)?.[1],
+            indicatorH: b._indicator?.height,
+            indicatorVisible: b._indicator?.visible,
         })),
         windows: windows.map(w => ({
             title: w.get_title(),

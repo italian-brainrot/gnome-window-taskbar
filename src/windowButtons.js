@@ -31,6 +31,11 @@ const INDICATOR_RADIUS = 1.5;
 const INDICATOR_HEIGHT = 8;
 const DEGREES = Math.PI / 180;
 
+// A strip shorter than the two rounded ends of the dash is not a dash any more:
+// vfunc_repaint draws arcs of this radius, so this is the floor below which the
+// strip is hidden instead of squeezed (see WindowButton._fitVertical).
+const INDICATOR_MIN_HEIGHT = INDICATOR_RADIUS * 2;
+
 // A window title that can be ellipsized from; the width preference subtracts
 // the button's own chrome (padding, border, the icon and its spacing).
 const MIN_LABEL_WIDTH = 24;
@@ -45,6 +50,11 @@ const MIN_LABEL_WIDTH = 24;
 // '#panel .panel-button' (an id selector, so it outranks our class) puts on
 // every panel button.
 const BUTTON_CHROME_WIDTH = 24;
+
+// The same for the height. The window button carries no vertical padding or
+// margin (stylesheet.css), so what the theme spends around it vertically is the
+// 3px border that '#panel .panel-button' puts on every panel button, per side.
+const BUTTON_CHROME_HEIGHT = 6;
 
 // The same for the window list itself: its padding and the border that draws the
 // separator line in front of the buttons (see .azTaskbar-window-list in
@@ -328,6 +338,25 @@ class WindowTaskbarButton extends St.Button {
         return Math.round(chrome);
     }
 
+    /**
+     * The same, for the height: what the theme spends above and below the
+     * button's content - padding, border and margin, per side. It is what the
+     * panel has to fit the button into, and it is what the panel's height has to
+     * be measured against (see _fitVertical).
+     */
+    themeChromeHeight() {
+        if (this.get_stage() === null)
+            return BUTTON_CHROME_HEIGHT;
+
+        const node = this.get_theme_node();
+        if (!node)
+            return BUTTON_CHROME_HEIGHT;
+
+        const chrome = [St.Side.TOP, St.Side.BOTTOM].reduce((sum, side) =>
+            sum + node.get_padding(side) + node.get_border_width(side) + node.get_margin(side), 0);
+        return Math.round(chrome);
+    }
+
     updateIcon() {
         const app = this.getApp();
         this._app = app;
@@ -363,15 +392,25 @@ class WindowTaskbarButton extends St.Button {
      * width, capped there, and shrinks with the panel when the taskbar is full
      * (the title is then ellipsized at the end). 0 means no cap.
      *
-     * What the label never gets is a minimum. Clutter aborts the whole shell when
-     * a box child asks for more than it can get, and a title that has ellipsized
+     * What the label never gets is a minimum, and `min_width = 0` is the part of
+     * this that is real on Clutter 18: it takes the floor out, so the panel is
+     * never handed a child it cannot fit. Clutter aborts the whole shell when a
+     * box child asks for more than it can get, and a title that has ellipsized
      * down to just the ellipsis has a natural width of some 17px, smaller than any
      * sensible minimum - the abort line was "natural width: 17 < minimum 24", and
-     * it cost the session its login. So only max_width is set here, never < 0.
+     * it cost the session its login.
+     *
+     * The cap itself is written as `max_width`, and on this Clutter that is
+     * nothing at all: the property is gone and GJS puts the number on the JS
+     * wrapper rather than on the actor (HACKING.md, "API notes"). The row is kept
+     * inside the panel by measuring it and by the label's ellipsization instead
+     * (see WindowsList._shareRoom); the assignment stays as the honest spelling of
+     * the preference, not as the thing that works.
      *
      * @param {number=} widthCap - room per button, see WindowsList._shareRoom
+     * @param {number=} bandHeight - the panel's height, see _fitVertical
      */
-    updateStyle(widthCap = null, showLabels = null) {
+    updateStyle(widthCap = null, showLabels = null, bandHeight = null) {
         const settings = this._settings;
 
         this._icon.visible = settings.get_boolean('window-button-icons');
@@ -382,9 +421,8 @@ class WindowTaskbarButton extends St.Button {
         this._label.visible = showLabels ?? settings.get_boolean('window-labels');
 
         const requested = widthCap ?? settings.get_int('window-button-width');
-        // Clutter's min-/max-width properties take no negative value (setting -1
-        // gets a GObject warning and nothing at all happens), so "no limit" is
-        // done with the biggest float the property accepts.
+        // min_width is real, and 0 is the whole point of it (see the note above);
+        // max_width is the preference's own spelling and inert on this Clutter.
         this._label.min_width = 0;
         this._label.max_width = NO_LIMIT;
         if (requested > 0) {
@@ -396,12 +434,71 @@ class WindowTaskbarButton extends St.Button {
         // the font size comes as a style; the width cap is the max_width property,
         // which is what keeps the button's width to the title's own (a CSS
         // max-width would fix the label's natural size, and uniform buttons are
-        // not what was asked for)
+        // not what was asked for) - except that this Clutter has no such property,
+        // so the row's width is decided by _shareRoom measuring it instead
         const fontSize = settings.get_int('window-label-font-size');
         this._label.style = fontSize > 0 ? `font-size: ${fontSize}px;` : '';
 
         this._indicator.setIndicatorLocation(settings.get_enum('indicator-location'));
         this._setIndicatorOrder();
+        this._fitVertical(bandHeight);
+    }
+
+    /**
+     * Fit the button's content into the height the panel has.
+     *
+     * A box layout does not shrink a child below its *minimum*: when the minimum
+     * is more than the box has, it hands over the larger number, and the child is
+     * not clipped to the panel - it hangs off the bottom of it, which for a bottom
+     * panel means off the screen. That is what a title does: the line of text, the
+     * indicator strip and the theme's padding, border and margin around them come
+     * to more than the panel's height (18 + 8 + 6 + 6 + 4 = 42 px against the ~30 px
+     * band the theme's `#panel {height: 2.2em}` leaves, see HACKING.md), so the button
+     * sat below the band: its dash was drawn under the edge of the screen, and the rows
+     * of the band the button no longer covered were presses on the panel rather than
+     * presses on the button - and GNOME 50's panel answers a press on itself by starting
+     * a window move, which swallows the click. So the height is budgeted here rather
+     * than left to the theme: the row of icon and title keeps its line, the indicator
+     * strip takes what that leaves of the band, and the button's *minimum* stays under
+     * the band - which is what makes the box hand it the band and no more.
+     *
+     * Clutter 18 has no max-height property (see HACKING.md), and a natural size
+     * below the minimum is the request that aborts the shell, so nothing is ever
+     * capped here: the row's minimum is put on the floor (min-height *is* the
+     * request in this Clutter, so 0 means the box may give the row less than the
+     * text asks for), and the strip is the part that gives way - down to being
+     * hidden, since an invisible child asks for nothing.
+     *
+     * @param {number=} bandHeight - see WindowsList._bandHeight
+     */
+    _fitVertical(bandHeight = null) {
+        // no stage, no panel measured yet: leave the requests as they came
+        const band = bandHeight ?? this._list._bandHeight();
+        if (band <= 0 || this.get_stage() === null)
+            return;
+
+        // what the button's content may use, the theme's chrome paid for
+        const room = Math.max(0, band - this.themeChromeHeight());
+
+        // the row the icon and the title make: an invisible child asks for
+        // nothing, so this is the icon's line once the titles have given way
+        const [, rowNatural] = this._box.get_preferred_height(-1);
+        const rowHeight = Math.round(rowNatural);
+
+        // the floor goes out of the row: if the panel is shorter than a line of
+        // text, the text is what is cut, not the button's place in the panel
+        this._label.min_height = 0;
+        this._icon.min_height = 0;
+
+        const left = room - Math.min(rowHeight, room);
+        if (left >= INDICATOR_MIN_HEIGHT) {
+            this._indicator.visible = true;
+            this._indicator.height = Math.min(INDICATOR_HEIGHT, left);
+        } else {
+            // no room for a dash at all: the strip goes, and with it its request
+            this._indicator.visible = false;
+            this._indicator.height = INDICATOR_HEIGHT;
+        }
     }
 
     _onClick() {
@@ -577,7 +674,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     _setSettingsConnections() {
         const styleKeys = ['window-labels', 'window-labels-auto-hide', 'window-button-icons',
             'window-button-width', 'window-label-font-size', 'icon-size', 'taskbar-spacing',
-            'panel-location'];
+            'panel-location', 'main-panel-height'];
         const layoutKeys = ['isolate-workspaces', 'isolate-monitors', 'panel-on-all-monitors'];
         // the title is cut before the layout sees it, so changing the length means
         // the titles are made again rather than merely styled
@@ -781,6 +878,25 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
     }
 
     /**
+     * The height of the band the buttons live in: the panel's own height, read off
+     * the panel that does the allocating. Not the `main-panel-height` preference:
+     * the fork writes that as a class (`.azTaskbar-panel`) and the theme's
+     * `#panel {height: 2.2em}` is an id selector, so the theme's height is what the
+     * panel actually gets (HACKING.md, "The panel's height"). The buttons have to
+     * fit into it - it is the vertical counterpart of _roomWidth(), and it is asked
+     * of the panel for the same reason: the allocation, not the setting.
+     *
+     * An actor that has never been allocated answers with its natural request, so
+     * the answer is honest before the first layout pass too; 0 means there is no
+     * panel to measure against.
+     */
+    _bandHeight() {
+        const panel = this._panelAncestor();
+        const height = panel ? Math.round(panel.height) : 0;
+        return height > 0 ? height : 0;
+    }
+
+    /**
      * What the row costs apart from its buttons: the list's own padding and
      * border (the separator line in front of the buttons is one of them), plus
      * the spacing between the children. Read from the theme node, because it all
@@ -866,6 +982,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
 
         const room = this._roomWidth();
         this._measuredRoom = room;
+        const band = this._bandHeight();
 
         // the buttons in the order the row lays them out, so that giving up on a
         // button means giving up on the last one of the row, not on the last one
@@ -896,7 +1013,7 @@ class WindowTaskbarWindowsList extends St.BoxLayout {
                 const visible = index < shown;
                 if (button.visible !== visible)
                     button.visible = visible;
-                button.updateStyle(cap, showLabels && visible);
+                button.updateStyle(cap, showLabels && visible, band);
             });
 
             if (this._rowWidth(buttons, shown) <= room)
