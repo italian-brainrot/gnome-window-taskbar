@@ -169,7 +169,7 @@
         </key>
         <key type="i" name="window-button-width">
             <default>220</default>
-            <summary>Width of every window button in px. 0 = the button is as wide as its title</summary>
+            <summary>Maximum width of a window button in px. 0 = no limit; the buttons shrink with the panel</summary>
         </key>
         <key type="i" name="window-label-font-size">
             <default>0</default>

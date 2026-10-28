@@ -72,10 +72,11 @@ starts with *every* user extension disabled, because mutter finds
 (`value "-1" is invalid or out of range for property 'min-height'`) is the same
 class of mistake.
 
-* Do not set `min_width`/`min_height` on a taskbar child: the width asked for
-  by the preference goes to the label (`St.Label.width`), where min == natural
-  always holds. `WindowButton.updateStyle()` re-checks min <= natural after
-  applying it and drops the request when that does not hold.
+* Do not set `min_width`/`min_height` on a taskbar child: `WindowButton`
+  applies the width preference as `max_width` on the label plus a small
+  `min_width` (so the button fits the title, is capped there and shrinks with
+  the panel), and `updateStyle()` re-checks min <= natural afterwards and drops
+  the request when that does not hold.
 * `scripts/treeshow.py` marks an actor with `min > natural` in the dump, and
   `scripts/hotreload.sh` greps the journal for those complaints right after a
   reload and unloads the build again (writing `build/dev/FAILED`).

@@ -256,21 +256,23 @@ class WindowTaskbarButton extends St.Button {
 
         this._label.visible = settings.get_boolean('window-labels');
 
+        // The width preference is a *maximum*: the button takes the title's own
+        // width, capped there, and shrinks with the panel when the taskbar is
+        // full (the title is ellipsized in the middle). 0 = no cap.
+        //
         // Clutter aborts the *whole shell* when a child's minimum width is
         // bigger than its natural width ("ClutterBoxLayout child ... natural
-        // width: 140 < minimum 220"), so the requested width belongs on the
-        // label, where min <= natural always holds. The preference names the
-        // width of the whole button; the label gets what is left of that after
-        // the icon and the button's padding. width 0 = fit the title.
+        // width: 140 < minimum 220"), so this only ever touches max_width and
+        // min_width, where min <= natural is what always holds.
         const requested = settings.get_int('window-button-width');
+        this._label.min_width = MIN_LABEL_WIDTH;
+        this._label.max_width = -1;
         if (requested > 0) {
             const iconWidth = settings.get_boolean('window-button-icons')
                 ? settings.get_int('icon-size')
                 : 0;
-            this._label.width = Math.max(MIN_LABEL_WIDTH,
+            this._label.max_width = Math.max(MIN_LABEL_WIDTH,
                 requested - BUTTON_CHROME_WIDTH - iconWidth);
-        } else {
-            this._label.width = -1;
         }
 
         const fontSize = settings.get_int('window-label-font-size');
@@ -281,12 +283,12 @@ class WindowTaskbarButton extends St.Button {
         // Clutter aborts the shell outright when a container is asked to fit a
         // child whose minimum is bigger than its natural size, so the request
         // is dropped before it can reach the layout.
-        const [minWidth, naturalWidth] = this._label.get_preferred_width(-1);
+        const [minWidth, naturalWidth] = this.get_preferred_width(-1);
         if (minWidth > naturalWidth) {
-            this._label.width = -1;
+            this._label.min_width = -1;
+            this._label.max_width = -1;
             logWarning(`windowtaskbar: window-button-width ${requested} does not` +
-                `fit (min ${minWidth} > natural ${naturalWidth}), using the` +
-                `title's own width`);
+                `fit (min ${minWidth} > natural ${naturalWidth}), dropping it`);
         }
     }
 
