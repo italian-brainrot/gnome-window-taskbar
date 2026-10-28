@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <enum id='org.gnome.shell.extensions.aztaskbar.indicator-location'>
+        <value value='0' nick='TOP'/>
+        <value value='1' nick='BOTTOM'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.panel-location'>
+        <value value='0' nick='TOP'/>
+        <value value='1' nick='BOTTOM'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.click-action'>
+        <value value='0' nick='CYCLE'/>
+        <value value='1' nick='CYCLE_MINIMIZE'/>
+        <value value='2' nick='PREVIEW'/>
+        <value value='3' nick='NO_TOGGLE_CYCLE'/>
+        <value value='4' nick='RAISE'/>
+        <value value='5' nick='MINIMIZE'/>
+        <value value='6' nick='QUIT'/>
+        <value value='7' nick='LAUNCH'/>
+        <value value='8' nick='RAISE_HERE'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.window-preview-click-action'>
+        <value value='0' nick='RAISE'/>
+        <value value='1' nick='RAISE_MINIMIZE'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.scroll-action'>
+        <value value='0' nick='CYCLE'/>
+        <value value='1' nick='NO_ACTION'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.proximityBehavior'>
+        <value value='0' nick='ALL_WINDOWS'/>
+        <value value='1' nick='FOCUSED_WINDOWS'/>
+        <value value='2' nick='MAXIMIZED_WINDOWS'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.position-in-panel'>
+        <value value='0' nick='LEFT'/>
+        <value value='1' nick='CENTER'/>
+        <value value='2' nick='RIGHT'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.icon-style'>
+        <value value='0' nick='REGULAR'/>
+        <value value='1' nick='SYMBOLIC'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.multi-window-indicator-style'>
+        <value value='0' nick='INDICATOR'/>
+        <value value='1' nick='MULTI_DASH'/>
+    </enum>
+    <enum id='org.gnome.shell.extensions.aztaskbar.show-weather-by-clock'>
+        <value value='0' nick='OFF'/>
+        <value value='1' nick='LEFT'/>
+        <value value='2' nick='RIGHT'/>
+    </enum>
+    <schema id="org.gnome.shell.extensions.aztaskbar" path="/org/gnome/shell/extensions/aztaskbar/">
+        <key type="i" name="update-notifier-project-version">
+            <default>0</default>
+            <summary>The project version of when an update notification was shown</summary>
+        </key>
+        <key type="b" name="update-notifier-enabled">
+            <default>true</default>
+            <summary>Enable/Disable the update notifications</summary>
+        </key>
+        <key type="s" name="prefs-visible-page">
+            <default>''</default>
+            <summary>Which page to show when settings window is opened. Empty string is default.</summary>
+        </key>
+        <key type="b" name="hide-dash">
+            <default>true</default>
+            <summary>Hide GNOME Overview Dash</summary>
+        </key>
+        <key type="b" name="isolate-workspaces">
+            <default>true</default>
+            <summary>Isolate running apps by current workspace</summary>
+        </key>
+        <key type="b" name="panel-on-all-monitors">
+            <default>true</default>
+            <summary>Show a panel on all monitors</summary>
+        </key>
+        <key type="b" name="panel-transparent-in-overview">
+            <default>false</default>
+            <summary>Make panel transparent while in overview</summary>
+        </key>
+        <key type="b" name="intellihide">
+            <default>false</default>
+            <summary>Intellihide</summary>
+        </key>
+        <key type="b" name="intellihide-hide-from-windows">
+            <default>true</default>
+            <summary>Only hide from windows</summary>
+        </key>
+        <key name="intellihide-behaviour" enum="org.gnome.shell.extensions.aztaskbar.proximityBehavior">
+            <default>'FOCUSED_WINDOWS'</default>
+            <summary>Intellihide behaviour</summary>
+        </key>
+        <key type="b" name="intellihide-use-pressure">
+            <default>false</default>
+            <summary>Intellihide pressure</summary>
+        </key>
+        <key type="i" name="intellihide-pressure-threshold">
+            <default>100</default>
+            <summary>Intellihide pressure threshold</summary>
+        </key>
+        <key type="i" name="intellihide-pressure-time">
+            <default>1000</default>
+            <summary>Intellihide pressure time</summary>
+        </key>
+        <key type="b" name="intellihide-show-in-fullscreen">
+            <default>false</default>
+            <summary>Allow revealing the panel while in fullscreen</summary>
+        </key>
+        <key type="b" name="intellihide-show-on-notification">
+            <default>false</default>
+            <summary>Reveal the panel on notification</summary>
+        </key>
+        <key type="b" name="intellihide-only-secondary">
+            <default>false</default>
+            <summary>Intellihide only secondary</summary>
+        </key>
+        <key type="i" name="intellihide-animation-time">
+            <default>200</default>
+            <summary>Intellihide animation time</summary>
+        </key>
+        <key type="i" name="intellihide-close-delay">
+            <default>400</default>
+            <summary>Intellihide close delay</summary>
+        </key>
+        <key type="as" name="intellihide-key-toggle">
+            <default><![CDATA[['<Super>i']]]></default>
+            <summary>Keybinding toggle intellihide</summary>
+        </key>
+        <key type="i" name="intellihide-persisted-state">
+            <default>-1</default>
+            <summary>Persisted intellihide hold status. -1 means the option is disabled</summary>
+        </key>
+        <key type="i" name="intellihide-enable-start-delay">
+            <default>2000</default>
+            <summary>Intellihide enable start delay</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.panel-location" name="panel-location">
+            <default>'TOP'</default>
+            <summary>Panel location. TOP or BOTTOM</summary>
+        </key>
+        <key type="b" name="isolate-monitors">
+            <default>true</default>
+            <summary>Isolate running apps by current monitors</summary>
+        </key>
+        <key type="(bi)" name="main-panel-height">
+            <default>(true, 40)</default>
+            <summary>Change the height of GNOME top panel</summary>
+        </key>
+        <key type="b" name="always-show-notifications">
+            <default>false</default>
+            <summary>Always show App Icon notification bagdes, even when 'Do Not Disturb' is on</summary>
+        </key>
+        <key type="b" name="show-panel-activities-button">
+            <default>true</default>
+            <summary>Show/Hide the activities button in panel</summary>
+        </key>
+        <key type="b" name="show-running-apps">
+            <default>true</default>
+            <summary>Show/Hide running apps icons</summary>
+        </key>
+        <key type="b" name="favorites">
+            <default>true</default>
+            <summary>Show GNOME favorites as AppIcons</summary>
+        </key>
+        <key type="b" name="favorites-on-all-monitors">
+            <default>false</default>
+            <summary>Show GNOME favorites as AppIcons on all monitors</summary>
+        </key>
+        <key type="(bi)" name="show-apps-button">
+            <default>(false, 0)</default>
+            <summary>Enable a Show Apps Button. 0 = left, 1 = right</summary>
+        </key>
+        <key type="b" name="window-previews">
+            <default>true</default>
+            <summary>Show window previews for running apps</summary>
+        </key>
+        <key type="d" name="window-previews-size-scale">
+            <default>1.0</default>
+            <summary>Window previews size scale</summary>
+        </key>
+        <key type="i" name="window-previews-show-timeout">
+            <default>600</default>
+            <summary>Delay for showing window previews (ms)</summary>
+        </key>
+        <key type="i" name="window-previews-hide-timeout">
+            <default>300</default>
+            <summary>Delay for hiding window previews (ms)</summary>
+        </key>
+        <key type="i" name="window-previews-switch-timeout">
+            <default>300</default>
+            <summary>Delay for switching between window previews (ms)</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.window-preview-click-action" name="window-preview-click-action">
+            <default>'RAISE'</default>
+            <summary>Window Previews click action</summary>
+        </key>
+        <key type="b" name="window-preview-show-minimize-button">
+            <default>true</default>
+            <summary>Show minimize window button on window previews</summary>
+        </key>
+        <key type="i" name="window-preview-button-size">
+            <default>20</default>
+            <summary>Close/Minimize button size</summary>
+        </key>
+        <key type="i" name="window-preview-button-icon-size">
+            <default>16</default>
+            <summary>Close/Minimize button icon size</summary>
+        </key>
+        <key type="i" name="window-preview-app-icon-size">
+            <default>23</default>
+            <summary>Close/Minimize button icon size</summary>
+        </key>
+        <key type="i" name="window-preview-title-font-size">
+            <default>10</default>
+            <summary>Window preview title font size</summary>
+        </key>
+        <key type="i" name="window-preview-button-spacing">
+            <default>6</default>
+            <summary>Window previews spacing between buttons</summary>
+        </key>
+        <key type="b" name="window-preview-grid-enabled">
+            <default>true</default>
+            <summary>Enable grid layout for window previews</summary>
+        </key>
+        <key type="i" name="window-preview-grid-columns">
+            <range min="1" max="10"/>
+            <default>4</default>
+            <summary>Number of columns in window preview grid</summary>
+        </key>
+        <key type="b" name="peek-windows">
+            <default>true</default>
+            <summary>Peek to window when mouse over a window previews</summary>
+        </key>
+        <key type="i" name="peek-windows-timeout">
+            <default>200</default>
+            <summary>Peek to window delay in ms</summary>
+        </key>
+        <key type="i" name="peek-windows-opacity">
+            <default>40</default>
+            <summary>Peek to window - opacity of inactive windows. 0 - 255</summary>
+        </key>
+        <key type="b" name="multi-window-indicator">
+            <default>true</default>
+            <summary>Show an indicator when app has multiple windows</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.multi-window-indicator-style" name="multi-window-indicator-style">
+            <default>'MULTI_DASH'</default>
+            <summary>Multiple window indicator style</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.indicator-location" name="indicator-location">
+            <default>'TOP'</default>
+            <summary>AppIcon indicator location. TOP or BOTTOM</summary>
+        </key>
+        <key type="b" name="indicator-color-use-system-accent-color">
+            <default>false</default>
+            <summary>AppIcon indicator colors. Use system accent color, or custom colors.</summary>
+        </key>
+        <key type="s" name="indicator-color-running">
+            <default>'rgb(204, 204, 204)'</default>
+            <summary>AppIcon running indicator color</summary>
+        </key>
+        <key type="s" name="indicator-color-focused">
+            <default>'rgb(53, 132, 228)'</default>
+            <summary>AppIcon focused indicator color</summary>
+        </key>
+        <key type="b" name="dance-urgent">
+            <default>true</default>
+            <summary>Dance AppIcons when marked Urgent</summary>
+        </key>
+        <key type="b" name="unity-badges">
+            <default>true</default>
+            <summary>Enable Unity Badges Counter on AppIcons</summary>
+        </key>
+        <key type="b" name="unity-progress-bars">
+            <default>true</default>
+            <summary>Enable Unity Progress Bars on AppIcons</summary>
+        </key>
+        <key type="b" name="notification-badges">
+            <default>true</default>
+            <summary>Enable Notification Badges Counter on AppIcons</summary>
+        </key>
+        <key type="b" name="tool-tips">
+            <default>true</default>
+            <summary>Show tool-tips for AppIcons</summary>
+        </key>
+        <key type="i" name="icon-size">
+            <default>26</default>
+            <summary>Icon size for the AppIcons</summary>
+        </key>
+        <key type="i" name="icon-padding-horizontal">
+            <default>8</default>
+            <summary>Horizontal padding for the AppIcons</summary>
+        </key>
+        <key type="i" name="taskbar-spacing">
+            <default>0</default>
+            <summary>Spacing between AppIcons on the taskbar</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.click-action" name="click-action">
+            <default>'CYCLE_MINIMIZE'</default>
+            <summary>Left Click action for running AppIcons</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.click-action" name="middle-click-action">
+            <default>'LAUNCH'</default>
+            <summary>Middle Click action for running AppIcons</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.click-action" name="shift-middle-click-action">
+            <default>'LAUNCH'</default>
+            <summary>Shift + Middle Click action for running AppIcons</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.scroll-action" name="scroll-action">
+            <default>'CYCLE'</default>
+            <summary>Scroll action for running AppIcons</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.position-in-panel" name="position-in-panel">
+            <default>'LEFT'</default>
+            <summary>Position in panel. LEFT, CENTER, or RIGHT</summary>
+        </key>
+        <key type="i" name="position-offset">
+            <default>1</default>
+            <summary>Position in the selected panel-box</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.position-in-panel" name="clock-position-in-panel">
+            <default>'CENTER'</default>
+            <summary>Clock Position in panel. LEFT, CENTER, or RIGHT</summary>
+        </key>
+        <key type="i" name="clock-position-offset">
+            <default>0</default>
+            <summary>Clock offset position</summary>
+        </key>
+        <key type="(bi)" name="clock-font-size">
+            <default>(false, 12)</default>
+            <summary>Change the font size of the panel clock</summary>
+        </key>
+        <key type="d" name="desaturation-factor">
+            <default>0.0</default>
+            <summary>Desaturate effect for AppIcons. 0.0 - 1.0</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.icon-style" name="icon-style">
+            <default>'REGULAR'</default>
+            <summary>AppIcon icon style. REGULAR or SYMBOLIC</summary>
+        </key>
+        <key type="(bs)" name="override-panel-clock-format">
+            <default>(false, '%A, %B %d - %H∶%M')</default>
+            <summary>Change the height of GNOME top panel</summary>
+        </key>
+        <key enum="org.gnome.shell.extensions.aztaskbar.show-weather-by-clock" name="show-weather-by-clock">
+            <default>'OFF'</default>
+            <summary>Show current weather by panel clock.</summary>
+        </key>
+    </schema>
+</schemalist>
