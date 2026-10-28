@@ -269,8 +269,9 @@
             <summary>Multiple window indicator style</summary>
         </key>
         <key enum="org.gnome.shell.extensions.windowtaskbar.indicator-location" name="indicator-location">
-            <default>'TOP'</default>
-            <summary>AppIcon indicator location. TOP or BOTTOM</summary>
+            <!-- the panel default is BOTTOM, so the dash reads better there -->
+            <default>'BOTTOM'</default>
+            <summary>Indicator location for the app icons and the window buttons. TOP or BOTTOM</summary>
         </key>
         <key type="b" name="indicator-color-use-system-accent-color">
             <default>false</default>
