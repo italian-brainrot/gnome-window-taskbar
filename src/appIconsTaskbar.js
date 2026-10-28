@@ -413,12 +413,12 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
                 item.updateAppIcon();
         }
 
-        // insert_child_at_index does not re-parent an attached child (Clutter
-        // warns and silently ignores the request), so the permanent window list
-        // is unparented before it is put back at its position.
-        if (this.windowsList.get_parent() === this.mainBox)
-            this.mainBox.remove_child(this.windowsList);
-        this.mainBox.insert_child_at_index(this.windowsList, expectedAppsInfo.length);
+        // The window list is a panel item, not one of mainBox's children: it lives
+        // in the panel's centre box (see _placeInPanel in the window list), where
+        // the room is not capped to the favourites' half of the panel. Asking
+        // Clutter to put it in mainBox costs an assertion every time the favourites
+        // are ordered, since Clutter will not re-parent a child that is attached.
+        this.windowsList?._placeInPanel(this.mainBox);
 
         const [showAppsButton, showAppsButtonPosition] = TaskbarManager.settings.get_value('show-apps-button').deep_unpack();
         if (showAppsButton) {
