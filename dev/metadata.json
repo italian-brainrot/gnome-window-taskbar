@@ -4,7 +4,8 @@
   "uuid": "windowtaskbar-dev@local",
   "settings-schema": "org.gnome.shell.extensions.windowtaskbar",
   "shell-version": [
-    "50"
+    "50",
+    "51"
   ],
   "url": "https://gitlab.com/AndrewZaech/aztaskbar",
   "version": 1,

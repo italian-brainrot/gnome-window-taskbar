@@ -1,12 +1,13 @@
 # Window Taskbar (GNOME Shell extension)
 
-A bottom-panel taskbar for GNOME Shell 50: favourites on the left exactly like
+A bottom-panel taskbar for GNOME Shell 50 and 51: favourites on the left exactly like
 [App Icons Taskbar](https://gitlab.com/AndrewZaech/aztaskbar) (this is a fork of
 it), and after them **one button per open window, with the window title, never
 grouped by application**.
 
-Built for GNOME Shell 50.6 (Bazzite 44). Fork of aztaskbar 31.4, GPL-3.0-or-later,
-see `AUTHORS`, `LICENSE` and `HACKING.md`.
+Built for GNOME Shell 50 and 51 (the `shell-version` list in `src/metadata.json`);
+developed on Bazzite Silverblue, first 44 / Shell 50.6, now 45 / Shell 51.1. Fork of
+aztaskbar 31.4, GPL-3.0-or-later, see `AUTHORS`, `LICENSE` and `HACKING.md`.
 
 ## Install
 

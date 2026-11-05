@@ -234,9 +234,12 @@ class azTaskbarPanel extends St.Widget {
     }
 
     vfunc_key_press_event(keyEvent) {
-        const symbol = keyEvent.keyval;
-        if (symbol === Clutter.KEY_Escape) {
-            global.display.focus_default_window(keyEvent.time);
+        // Clutter.Event has no `keyval`/`time` properties to read (they belonged to
+        // the old C-struct events; the accessors are the API), so go through them.
+        // GNOME 51 moved the shell's own panel to a key binding pool for the same
+        // key, but this panel is the fork's widget, not the shell's Panel.
+        if (keyEvent.get_key_symbol() === Clutter.KEY_Escape) {
+            global.display.focus_default_window(keyEvent.get_time());
             return Clutter.EVENT_STOP;
         }
 

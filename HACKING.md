@@ -64,12 +64,15 @@ per window is too small), `window-title-max-chars` (0 = the whole title),
 
 ## API notes (verified on the host, not from memory)
 
-* GNOME Shell 50.6, GJS 1.88, mutter 18 (`libmutter-18`), Bazzite 44 Silverblue.
+* The host is Bazzite Silverblue and it moved: it was GNOME Shell 50.6, GJS 1.88,
+  mutter 18 (`libmutter-18`) on Bazzite 44, and it is GNOME Shell 51.1, GJS 1.90.1,
+  mutter 51 (`libmutter-51`) on Bazzite 45. The notes below are the 50.6 ones, kept
+  because the fork still ships for 50; what 51 changed is under "GNOME Shell 51".
 * `Meta.Window` signals on this version: `focus`, `unmanaged`, `unmanaging`,
   `workspace-changed`, `raised`, `shown`, `configure`, `position-changed`,
   `size-changed` + `notify::` on the GObject properties (`title`, `minimized`,
   `demands-attention`, `skip-taskbar`, `above`, `maximized-*`).
-  Verified with: `distrobox-host-exec env GI_TYPELIB_PATH=/usr/lib64/mutter-18 python3 -c …`
+  Verified with: `distrobox-host-exec env GI_TYPELIB_PATH=/usr/lib64/mutter-<n> python3 -c …`
   (`Meta.Window.__info__.get_signals()`).
 * `Meta.Display`: `window-created`, `restacked`, `notify::focus-window`,
   `window-entered-monitor`, `window-left-monitor`, `workareas-changed`.
@@ -78,8 +81,10 @@ per window is too small), `window-title-max-chars` (0 = the whole title),
   `get_stable_sequence()`. No `change_max_state` on this version.
 * The shell's own JS sources of this exact build can be extracted for reference:
   `objcopy --dump-section .gresource.shell_js_resources=shell.gresource
-   /usr/lib64/gnome-shell/libshell-18.so /dev/null` then
+   /usr/lib64/gnome-shell/libshell-<major>.so /dev/null` then
   `gresource list shell.gresource` / `gresource extract shell.gresource <path>`.
+  `gresource list`/`extract` also take the `.so` itself directly, which is shorter:
+  `gresource extract /usr/lib64/gnome-shell/libshell-51.so /org/gnome/shell/ui/popupMenu.js`.
 * `org.gnome.Shell.Eval` is refused (unsafe-mode is off, and Wayland can not
   restart the shell in place), so errors are read from the journal:
   `scripts/logs.sh`.
@@ -130,6 +135,72 @@ per window is too small), `window-title-max-chars` (0 = the whole title),
   `size-change` any more, and `Clutter.init()` does not exist either - the Clutter
   context belongs to mutter, so St cannot be run standalone to measure the theme's
   numbers: they have to be read inside the shell.
+
+### GNOME Shell 51 (what the update to 51.1 took away, and what it moved)
+
+Checked against `/usr/lib64/gnome-shell/libshell-51.so` (the shell's own JS, the
+`.gresource.shell_js_resources` section) and against the mutter 51.1 sources, and
+against the `Clutter-51`/`Meta-51`/`St-51`/`Shell-51` typelibs - the typelib
+numbers now follow the GNOME version, so `scripts/check-syntax.sh` asks the host
+for `/usr/lib64/mutter-*` instead of naming one.
+
+* **The "incompatible with this GNOME version" message is metadata, not code.**
+  `ExtensionSystem._isOutOfDate()` compares the major of `Config.PACKAGE_VERSION`
+  against `metadata.json`'s `shell-version` (`v.startsWith(major)`), and an entry
+  that misses leaves the extension in `OUT_OF_DATE`, which the Extensions app
+  renders as incompatible. So `shell-version` has to name every version the tree
+  is known to work on; the fork now says `["50", "51"]`.
+* The scan is still session-start only, **and** in 51 `ReloadExtension` on
+  `org.gnome.Shell.Extensions` answers `ReloadExtension is deprecated and does not
+  work` (ui/shellDBus.js) - `gnome-extensions reload` is gone. `install.sh` never
+  called it (see "Shipping it"), and the new `ExtensionSystem._canLoad()` guard
+  puts the module-cache rule from above in words: *"A different version was loaded
+  previously. You need to log out for changes to take effect."*
+* `ui/pointerWatcher.js` is **deleted** ("pointerWatcher: Remove unused module",
+  !4344): the magnifier was its last user. Nothing in 51's JS references it. The
+  hover machinery here (intellihide's reveal, the window-preview close timer) is
+  already driven by `global.backend.get_cursor_tracker()` + its `position-invalidated`
+  signal for `ShellVersion >= 51`, which is what the shell itself now does.
+* `PopupMenu.open()/close()` changed their argument from a `BoxPointer.PopupAnimation`
+  flag to an options object: `{animate, fadeOnly}`, folded back into a flag by
+  `PopupMenuBase._getPopupAnimationFromParams()` (`animate: false` → NONE,
+  `fadeOnly: true` → FADE, else FULL). A flag passed to a 51 shell does **not**
+  throw - a number destructures into nothing, so the shell sees "animate fully" -
+  which is the bad kind of break: no error, a quietly wrong animation. Call sites
+  build the argument with `Utils.menuParams({animate, fadeOnly})` instead.
+* `Meta.enable_unredirect_for_display()` / `disable_unredirect_for_display()` are
+  gone from the mutter 51 namespace; `global.compositor.enable_unredirect()` /
+  `disable_unredirect()` is what both 50 and 51 use. Already guarded at
+  `ShellVersion >= 48` in `intellihide.js`.
+* Clutter's *Action* classes are gone in 51 - no `Clutter.ClickAction`, no
+  `Clutter.LongPressState` (they are gestures now: `ClickGesture`,
+  `LongPressGesture`, `KeyController`, `MotionController`) - and so are
+  `Clutter.Color`, `Clutter.color_from_string`, `Clutter.cairo_set_source_color`
+  (already feature-detected here, and the `< 49` branches are the only places that
+  name them). The raw actor signals survive: `button-press-event`, `scroll-event`,
+  `captured-event`, `motion-event` are still signals of `ClutterActor` and still
+  emitted, and the `vfunc_*` handlers still exist; the shell just prefers
+  controllers internally now (that is why its own JS connects to six of them where
+  50 connected to thirty-nine).
+* `PopupMenuManager` installs its key/click/motion controllers on the menu actor in
+  `_onMenuOpenState()`, which the fork's `WindowPreviewMenuManager` override
+  deliberately does not reproduce (the hover preview closes on pointer leave, not
+  on an outside click) - so the override is still correct, but it is a copy of 50's
+  base method and needs re-reading the next time the base changes.
+* `Clutter.Event` has no `keyval`/`time` properties in **either** version (they are
+  accessor-only: `get_key_symbol()`, `get_time()`); `panel.js` read them and so its
+  Escape handling never fired. Fixed as part of the 51 pass.
+* `Meta.Window`'s signals, methods and properties are unchanged 50 → 51 (`above`,
+  `maximized-vertically`, `minimized`, `skip-taskbar`, `title`, `demands-attention`,
+  `has_attached_dialogs()`, `can_close()`, `get_compositor_private()`, …), and
+  `ui/workspace.js`, `ui/dnd.js`, `ui/appMenu.js`, `ui/windowMenu.js`, the panel
+  theme (`_panel.scss`) and `St.ThemeNode` are byte-identical or compatible. St 51
+  adds `St.ReducedMotion`/`St.Settings.reducedMotion` and `St.KeynavFlags`, which the
+  shell uses for animations and date-menu keynav; nothing here asks for them yet.
+* Latent, both versions: `windowPreview.js` reads `Workspace.WINDOW_OVERLAY_FADE_TIME`,
+  but that constant is not exported from `ui/workspace.js` in 50 **or** 51 (the shell
+  keeps its own copy private in `ui/windowPreview.js`), so those `duration:` values
+  are `undefined` and those fades do nothing. Left alone; it wants its own commit.
 
 ## Size requests: these can kill the session
 
@@ -541,7 +612,7 @@ disable, not a reload of a dev build).
 
 ## Dev loop
 
-GNOME Shell 50.6 scans extension dirs **once, at session start**
+GNOME Shell 50 and 51 scan extension dirs **once, at session start**
 (`ExtensionManager._loadExtensions()`), and it never rescans: there is no rescan
 D-Bus method, and `gnome-extensions install` only drops files in place. Worse, an
 extension whose `extension.js` failed to import keeps the failed module in the

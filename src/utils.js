@@ -5,6 +5,7 @@ import St from 'gi://St';
 
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import {formatDateWithCFormatString} from 'resource:///org/gnome/shell/misc/dateUtils.js';
+import {PopupAnimation} from 'resource:///org/gnome/shell/ui/boxpointer.js';
 
 const [ShellVersion] = Config.PACKAGE_VERSION.split('.').map(s => Number(s));
 
@@ -35,6 +36,29 @@ export function cancelRefresh(target, key) {
         return;
     GLib.source_remove(target[key]);
     target[key] = 0;
+}
+
+/**
+ * What to hand `menu.open()` and `menu.close()`.
+ *
+ * Up to GNOME Shell 50 these took a `BoxPointer.PopupAnimation` flag. GNOME 51
+ * turned the argument into an options object (`{animate, fadeOnly}`, see
+ * `PopupMenuBase._getPopupAnimationFromParams()` in ui/popupMenu.js), which is
+ * what the shell's own call sites now pass (`oldMenu?.close({fadeOnly: true})`).
+ *
+ * Passing a flag to a 51 shell does not throw - a number destructures into
+ * nothing, so it reads as "animate, with motion". That hides the two cases where
+ * the caller meant something else: a fade-only close, and no animation at all.
+ * So call sites say what they want and this says how the running shell hears it.
+ */
+export function menuParams({animate = true, fadeOnly = false} = {}) {
+    if (ShellVersion >= 51)
+        return {animate, fadeOnly};
+
+    if (!animate)
+        return PopupAnimation.NONE;
+
+    return fadeOnly ? PopupAnimation.FADE : PopupAnimation.FULL;
 }
 
 export function getFormattedDate(settings) {

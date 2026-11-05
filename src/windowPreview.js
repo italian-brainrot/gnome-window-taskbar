@@ -26,7 +26,6 @@ import * as Utils from './utils.js';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {PopupAnimation} from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import {Workspace} from 'resource:///org/gnome/shell/ui/workspace.js';
 
 const PREVIEW_MAX_WIDTH = 250;
@@ -62,7 +61,7 @@ export const WindowPreviewMenuManager = class azTaskbarWindowPreviewMenuManager 
         if (open) {
             const oldMenu = this.activeMenu;
             this.activeMenu = menu;
-            oldMenu?.close(PopupAnimation.FADE);
+            oldMenu?.close(Utils.menuParams({fadeOnly: true}));
 
             if (!this._keyFocusId) {
                 this._keyFocusId =
@@ -142,21 +141,24 @@ export const WindowPreviewMenu = class azTaskbarWindowPreviewMenu extends PopupM
     }
 
     popup() {
-        this.open(PopupAnimation.FULL);
+        this.open(Utils.menuParams());
     }
 
-    open(animate) {
+    // open()/close() take an animation argument whose shape the shell changed in
+    // GNOME 51 (a PopupAnimation flag before, an options object from 51 on) - the
+    // value is built by the caller, with Utils.menuParams(), and only passed on.
+    open(params) {
         if (this.shouldOpen) {
             this.display();
-            super.open(animate);
+            super.open(params);
             this.appIconsTaskbar.startPointerWatch();
             this._previewBox?.maybeShowScrollBar();
         }
     }
 
-    close(animate) {
+    close(params) {
         this.appIconsTaskbar.endPointerWatch();
-        super.close(animate);
+        super.close(params);
     }
 
     get shouldOpen() {

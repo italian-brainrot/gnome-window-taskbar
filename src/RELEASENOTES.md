@@ -1,3 +1,25 @@
+<b><span size="large">Window Taskbar 40.5 (fork)</span></b>
+
+- GNOME Shell 51: the extension can be enabled again. The shell decides that from
+  `metadata.json`'s `shell-version` list: a version major that is not named in it
+  leaves the extension `OUT_OF_DATE`, which is the Extensions app's "incompatible
+  with the current GNOME version". The fork named only `50`; it now names `50` and
+  `51`.
+- Window menu, window previews, app menu: GNOME 51 turned the animation argument of
+  `open()`/`close()` into an options object (`{animate, fadeOnly}`) where up to 50 it
+  was a `PopupAnimation` flag. Handing a flag to a 51 shell does not throw - it is
+  read as "animate fully" - so the fade-only close of a replaced preview, and the
+  animated open of a window menu, were quietly asking for the wrong thing. Call sites
+  now say what they mean and `Utils.menuParams()` says how the running shell hears it.
+  The window menu's open, left over from an older shell, was passing a *timestamp*
+  where a flag was expected, which read as whichever animation bits that timestamp
+  happened to have; it now says "animate".
+- Panel: pressing Escape on the band of the panel that is not a button focuses the
+  default window again. The handler tested `keyEvent.keyval`, which `Clutter.Event`
+  has never exposed (the accessors are `get_key_symbol()` and `get_time()`), so it
+  compared against nothing.
+
+
 <b><span size="large">Window Taskbar 40.4 (fork)</span></b>
 
 - Window buttons: the buttons with titles no longer hang off the bottom of the panel.

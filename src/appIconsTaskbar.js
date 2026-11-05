@@ -9,7 +9,6 @@ import * as AppFavorites from 'resource:///org/gnome/shell/ui/appFavorites.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as DND from 'resource:///org/gnome/shell/ui/dnd.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import {PopupAnimation} from 'resource:///org/gnome/shell/ui/boxpointer.js';
 
 import {AppIcon, ShowAppsIcon} from './appIcon.js';
 import {WindowButton, WindowsList} from './windowButtons.js';
@@ -552,7 +551,7 @@ class azTaskbarAppIconsTaskbar extends St.ScrollView {
             TaskbarManager.settings.get_int('window-previews-hide-timeout'), () => {
                 const activePreview = this.menuManager.activeMenu;
                 if (activePreview)
-                    activePreview.close(PopupAnimation.FULL);
+                    activePreview.close(Utils.menuParams());
 
                 this._windowPreviewCloseTimeoutId = 0;
                 this.endPointerWatch();

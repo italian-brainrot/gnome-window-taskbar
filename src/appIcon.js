@@ -1298,9 +1298,11 @@ class AzTaskbarAppMenu extends AppMenu {
         this._monitorIndex = monitorIndex;
     }
 
-    open(animate) {
+    // see Utils.menuParams(): the shape of this argument changed in GNOME 51, so
+    // the caller builds it and this only passes it on.
+    open(params) {
         this._updateWindowsSection();
-        super.open(animate);
+        super.open(params);
     }
 
     _updateWindowsSection() {

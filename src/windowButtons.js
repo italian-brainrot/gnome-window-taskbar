@@ -727,7 +727,7 @@ class WindowTaskbarButton extends St.Button {
         this._menuItem(_('Close'), window => window.delete(global.get_current_time()));
 
         this._menuManager.addMenu(this._menu);
-        this._menu.open(global.get_current_time());
+        this._menu.open(Utils.menuParams());
         this._menuManager.ignoreRelease?.();
     }
 
