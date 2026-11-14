@@ -19,7 +19,8 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
    only its style (`multi-window-indicator-style`) is a choice. Keys are dropped rather
    than left unused, because a prefs page full of options that do nothing is worse than
    a stale dconf entry.
-2. **No grouping + window titles** (`windowButtons.js`): a `WindowsList`
+2. **No grouping + window titles** (`windowButtons.js`, with the favourites'
+   `appMenu.js` shared with it for the right-click menu): a `WindowsList`
    (`St.BoxLayout`) lives in the panel's **centre box** rather than among the
    favourite `AppIcon`s - see "Where the window list lives, and how much room titles
    have" for why. Every window on the current workspace (also minimized
@@ -38,7 +39,12 @@ aztaskbar release means re-vendoring and cherry-picking our commits.
 
 * left click: raise/activate; on the already-focused, unminimized window: minimize
 * middle click / shift+click: close the window
-* right click: window menu (Minimize, Maximize, Keep above, Move to this workspace, Close)
+* right click: **the favourites' application menu**, for the application this
+  window belongs to (New Window, the application's windows on this monitor, its
+  .desktop actions, Pin to Dash, App Details, Quit) - see "The right-click menu:
+  the favourites' menu, and a window that goes away". A window the shell cannot
+  name keeps the fork's own window menu (Minimize, Maximize, Keep above, Move to
+  this workspace, Close)
 * scroll wheel over a button: cycle through the windows of this workspace
 * drag (hold ~200 ms and move): the button comes loose and the row reorders, the
   way the favourite icons do - see "Dragging a window button along the row"
@@ -197,6 +203,13 @@ for `/usr/lib64/mutter-*` instead of naming one.
   theme (`_panel.scss`) and `St.ThemeNode` are byte-identical or compatible. St 51
   adds `St.ReducedMotion`/`St.Settings.reducedMotion` and `St.KeynavFlags`, which the
   shell uses for animations and date-menu keynav; nothing here asks for them yet.
+* `ui/popupMenu.js` in 51: `PopupMenuManager` has **no `ignoreRelease()`** (the `?.()`
+  at the two call sites of this fork is what keeps it working if 50 has it), and a
+  menu's actor is placed by its caller and not by the menu - see "The right-click
+  menu". `blockSourceEvents`, which `appIcon.js` assigns to its menu, is not a
+  property of anything in `ui/popupMenu.js` or `ui/boxpointer.js` either: it is an
+  ordinary JS property on the wrapper, the same class of nothing as `max_width`.
+  Untouched for now, since the favourites' menu works.
 * Latent, both versions: `windowPreview.js` reads `Workspace.WINDOW_OVERLAY_FADE_TIME`,
   but that constant is not exported from `ui/workspace.js` in 50 **or** 51 (the shell
   keeps its own copy private in `ui/windowPreview.js`), so those `duration:` values
@@ -581,17 +594,77 @@ actor being unparented is asked for its size on the way out. Six lines per cycle
 state of things here, before and after sizing the buttons to the band - the check when
 touching this is that the number does not grow.
 
-## The window menu, and a window that goes away
+## The right-click menu: the favourites' menu, and a window that goes away
 
-The items of the window button's menu capture the `Meta.Window`, and a window can be
-closed - by its own application, or from the keyboard - while that menu is open.
-There is no `is_destroyed` in the `Meta.Window` API of mutter 18 to ask with
-(verified with introspection, see the API notes above), so the button keeps the state
-itself: `unmanaging` fires while the window is still reachable, and it sets
-`_windowGone` and closes the menu. Every menu action (`_menuItem`) and every click
-(`_activate`, the middle-click close) is a no-op after that. The button is destroyed
-one signal later, on `unmanaged`, and something that fires in between still holds this
-window - which is why closing the menu is not the whole guard.
+A window button's right click opens **the menu the favourites open**: the shell's
+`ui/appMenu.js`, in this fork's `AzTaskbarAppMenu` wrapper - New Window, the
+application's other windows, the actions of its .desktop file, Pin to Dash, App
+Details, Quit. The wrapper's only own work is its `"Open Windows"` section, which
+it filters with `Utils.getInterestingWindows()` (workspace and monitor, as the
+settings ask) instead of the shell's `!skip_taskbar`: a menu that lists a window
+the row does not is a menu that activates a window on another workspace than the
+person clicking thinks they are pointing at. The wrapper used to live in
+`appIcon.js`; it lives in `appMenu.js` now, so the window buttons can have it
+without importing the favourites' actor.
+
+What the per-window menu this fork wrote offered instead was the window's own
+state: Minimize, Maximize, Keep above, Move to this workspace, Close. Those four
+are on the window itself (its header buttons, its own right-click, Super+arrows,
+the workspace switcher) and none of them is a taskbar's business, while New Window
+and Quit had no route from the panel at all. Closing keeps two routes, the middle
+click and Quit. The per-window menu survives as the answer for a window the shell
+cannot name (`Shell.AppSystem.get_window_app()` is null for a window with no
+.desktop file behind it), where every item of the application menu would have
+nothing to act on.
+
+Two facts about the shell's popup menu are what make this menu appear where the
+old one never did:
+
+* **Nothing puts a `PopupMenu`'s actor on the stage.** Its caller does -
+  `PopupMenu.open()` ends with
+  `this.actor.get_parent().set_child_above_sibling(this.actor, null)`, so an actor
+  that was added nowhere is a `TypeError` in place of a menu. `appIcon.js` knows
+  this (`Main.uiGroup.add_child(this._menu.actor)`); the window button did not, so
+  **the window menu was built, opened, threw, and was never on screen** - which is
+  how a six-item window menu came to be what this file describes while the right
+  click answered nothing at all. `WindowButton._prepareMenu()` now places both of
+  the button's menus, and the menu's own `destroy()` takes the actor back off.
+* **A menu opens on the release, not on the press.** `PopupMenuManager` pushes a
+  modal grab the moment a menu opens, and the click gesture that closes a menu on a
+  press outside it recognizes *on press*. Open a menu from a press and the release
+  of that same button arrives at the menu's actor through the grab, which reads as
+  a press outside the menu: the menu is on screen for the length of a click. The
+  favourites fall into the right answer by accident - their menu comes from the
+  `'clicked'` of a click gesture, and a click gesture's `clicked` is a release - so
+  the window button now answers its right button on the release too
+  (`_onButtonRelease`). That handler is also where the middle button is answered:
+  `St.Button` has no `get_button()`, and whether it emits `clicked` for anything but
+  the primary button is not something to build on.
+
+The button is highlighted while one of its menus is open (`_setMenuHighlight`,
+`:focus`, the pseudo class `#panel .panel-button:focus` gives the panel's highlight
+to - and not the `:active` `syncState()` uses for the focused window, so the two
+cannot argue over one class). That is what `setForcedHighlight()` does for a
+favourite.
+
+And a window can go away - by itself, by its application, from the keyboard - while
+a menu that names it is open. There is no `is_destroyed` in the `Meta.Window` API to
+ask with (verified with introspection, see the API notes), so the button keeps the
+state itself: `unmanaging` fires while the window is still reachable, and it sets
+`_windowGone` and closes both menus. Every action of the per-window menu
+(`_menuItem`) and every click (`_activate`, the middle-click close) is a no-op after
+that. The button is destroyed one signal later, on `unmanaged`, and something that
+fires in between still holds this window - which is why closing the menu is not the
+whole guard.
+
+The application menu needs that closing *more* than the window menu ever did: its
+window items are the shell's own code and they call
+`Main.activateWindow(window, time)` on a captured window with no guard at all.
+
+Torn down with the button, and cut off from it (`disconnectObject`) *before* being
+destroyed: destroying a menu closes it, closing emits `open-state-changed`, and the
+button answers that by touching its own style - on an actor in the middle of being
+destroyed (see "Tearing down").
 
 ## Tearing down: never destroy the panel item from the list's own teardown
 
@@ -654,6 +727,11 @@ node dev/reorder-check.mjs  # the row's reorder arithmetic, no shell needed
 scripts/shot.sh             # a screenshot -> build/shot.png
 python3 scripts/pview.py    # crop the panel band -> build/panel.png (--runs, --box=)
 scripts/devclick.sh 'Brave' # run a window button's click handler from the probe
+scripts/devclick.sh 'Brave' menu 'New Window'
+                            # open its right-click menu, report which menu it was,
+                            # whether its actor is really on the stage, and every
+                            # item's label - then press the item named, or just
+                            # close the menu when no item is named
 ```
 
 Why those routes and not the obvious ones: the screenshot D-Bus service refuses a
@@ -665,6 +743,14 @@ does, which needs no permission and writes `build/dev/shot.png`. Mouse clicks
 cannot be injected into the shell at all, so `devclick.sh` calls the button's
 handler (`_onClick`, `_activate`, `_popupMenu`) from inside the shell and reports
 how the window state changed - which is also how the click behaviour is tested.
+
+What that proves stops at the handler it calls. Which of the three mouse buttons
+opened what (`_onButtonPress`, `_onButtonRelease`) is a question about an event,
+and an event cannot be faked from a container: a right click that opens its menu
+when `menu` is asked for says nothing about whether a release of the right button
+reaches the button that was pressed. That last part is checked by a hand on the
+panel, and the `stage` field of the report is what makes the difference visible
+between "the menu is open" and "the menu is on the screen".
 
 The loader (`dev/loader.js`) reads `build/dev/current` (an iteration number),
 imports `build/dev/iterN/extension.js` from that directory, and passes metadata

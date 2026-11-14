@@ -20,6 +20,7 @@ import * as DND from 'resource:///org/gnome/shell/ui/dnd.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+import {AzTaskbarAppMenu} from './appMenu.js';
 import {PanelLocation} from './extension.js';
 import {IndicatorLocation} from './appIconIndicator.js';
 import {TaskbarManager} from './taskbarManager.js';
@@ -197,7 +198,7 @@ class WindowTaskbarButton extends St.Button {
         this._settings = TaskbarManager.settings;
         this._tracker = Shell.WindowTracker.get_default();
         this._app = null;
-        // whether the window is on its way out (see _watchWindow, _menuItem)
+        // whether the window is on its way out (see _watchWindow, _closeMenus)
         this._windowGone = false;
 
         // St.BoxLayout has no y_fill: vertical fill comes from the child's
@@ -243,21 +244,19 @@ class WindowTaskbarButton extends St.Button {
         Utils.addChildToParent(this, this._root);
         this._setIndicatorOrder();
 
+        // The two menus a right click can open (see _popupMenu): the favourites'
+        // app menu, for a window whose application the shell knows, and this
+        // fork's window menu for the rest. Made on the first right click and kept
+        // until the button goes (see _buildAppMenu for why kept).
+        this._appMenu = null;
+        this._windowMenu = null;
+
         this._menuManager = new PopupMenu.PopupMenuManager(this);
         this._signals = new Utils.SignalHandler();
 
         this.connect('clicked', () => this._onClick());
-        this.connect('button-press-event', (actor, event) => {
-            // aztaskbar opens its AppIcon menu on the press, and St.Button's
-            // 'clicked' is not guaranteed to be emitted for the secondary
-            // button, so the menu lives here. Other buttons are propagated to
-            // St.Button's own click handling.
-            if (event.get_button() === BUTTON_SECONDARY) {
-                this._popupMenu();
-                return Clutter.EVENT_STOP;
-            }
-            return Clutter.EVENT_PROPAGATE;
-        });
+        this.connect('button-press-event', (actor, event) => this._onButtonPress(event));
+        this.connect('button-release-event', (actor, event) => this._onButtonRelease(event));
         this.connect('scroll-event', (actor, event) => this._onScroll(event));
         this.connect('destroy', () => this._onDestroy());
 
@@ -300,11 +299,15 @@ class WindowTaskbarButton extends St.Button {
      * fires while it is still usable, and mutter does not answer politely for a
      * window that is not managed - the button is only destroyed one signal later
      * ('unmanaged'), and anything that fires in between, in particular an item
-     * of the window menu the user left open, still holds this window.
+     * of a menu the user left open, still holds this window.
+     *
+     * The app menu needs this more than the window menu ever did: its items name
+     * the application's *other* windows and the shell's own code activates them
+     * with no guard, while every item of the window menu checks _windowGone.
      */
     _windowIsLeaving() {
         this._windowGone = true;
-        this._menu?.close();
+        this._closeMenus();
     }
 
     get focused() {
@@ -571,28 +574,93 @@ class WindowTaskbarButton extends St.Button {
         }
     }
 
+    /**
+     * The primary button: raise/activate, and minimize the window that already
+     * has the focus. (shift+click closes, and is answered here too because the
+     * modifier travels with the primary click.)
+     *
+     * The other two buttons are answered from the release event, in
+     * `_onButtonRelease()`. They are refused here as well, so that a shell whose
+     * St.Button does emit 'clicked' for them cannot do their job twice - once
+     * from each route. `delete()` on a window that is already closing is the kind
+     * of thing mutter answers with a warning and nothing else, but two routes to
+     * the same action is the sort of thing that goes wrong later.
+     */
     _onClick() {
         const event = Clutter.get_current_event();
         const button = event ? event.get_button() : 0;
         const modifiers = event ? event.get_state() : 0;
         const shiftPressed = (modifiers & Clutter.ModifierType.SHIFT_MASK) !== 0;
 
-        // St.Button has no get_button(), so the release event carries the
-        // button number; a secondary press already opened the menu.
-        if (button === BUTTON_SECONDARY) {
-            this._popupMenu();
+        if (button === BUTTON_SECONDARY || button === BUTTON_MIDDLE)
             return;
-        }
 
-        // Middle click, and shift+click, close the window.
-        if (button === BUTTON_MIDDLE || shiftPressed) {
-            if (!this._windowGone)
-                this.metaWindow.delete(global.get_current_time());
+        if (shiftPressed) {
+            this._closeWindow();
             return;
         }
 
         Main.overview.hide();
         this._activate();
+    }
+
+    /**
+     * The middle button closes the window, the way the middle click closes a tab
+     * everywhere else. The right button opens the menu.
+     *
+     * Both are answered on the release, where the button number is a fact: St.Button
+     * has no `get_button()`, and whether it emits 'clicked' for anything but the
+     * primary button is not something to build on (which is why the old route for
+     * these two - a branch of `_onClick()` reading the current event - could only
+     * ever be a guess).
+     */
+    _onButtonRelease(event) {
+        const button = event.get_button();
+
+        if (button === BUTTON_SECONDARY) {
+            this._popupMenu();
+            return Clutter.EVENT_STOP;
+        }
+
+        if (button === BUTTON_MIDDLE) {
+            this._closeWindow();
+            return Clutter.EVENT_STOP;
+        }
+
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    /**
+     * The press of the right button is stopped, so that the button does not wear
+     * St.Button's pressed look for a press that is not a click, and the menu's
+     * release, not the press, is what opens the menu.
+     *
+     * That is the route the favourites take too - their menu is opened by the
+     * 'clicked' of their click gesture, which is a release (appIcon.js,
+     * `_onClicked`) - and it is the route the shell's own panel buttons take.
+     * Opening on the press puts the menu's modal grab (which the shell's
+     * PopupMenuManager pushes the moment a menu opens) in place underneath the
+     * release of the very button that opened it, and the manager's click gesture
+     * reads that release as a press outside the menu: the menu is on the stage for
+     * the length of a click.
+     *
+     * The release still arrives after a stopped press: the press is what decides
+     * which actor keeps the pointer from then to the release (Clutter's implicit
+     * grab - the same thing that lets a drag carry on when the pointer leaves the
+     * button it started on), and not what a handler of the press answers. The
+     * check on the running shell is `scripts/devclick.sh <title> menu`, which
+     * reports the menu open with its actor on the stage.
+     */
+    _onButtonPress(event) {
+        return event.get_button() === BUTTON_SECONDARY
+            ? Clutter.EVENT_STOP
+            : Clutter.EVENT_PROPAGATE;
+    }
+
+    /** The window's own close button, which is what the middle click asks for. */
+    _closeWindow() {
+        if (!this._windowGone)
+            this.metaWindow.delete(global.get_current_time());
     }
 
     /** Clicking the focused, unminimized window minimizes it, otherwise it raises it. */
@@ -658,7 +726,7 @@ class WindowTaskbarButton extends St.Button {
      * WindowsList._dragStarted).
      */
     _onDragBegin() {
-        this._menu?.close();
+        this._closeMenus();
         this._list._dragStarted(this);
     }
 
@@ -678,10 +746,144 @@ class WindowTaskbarButton extends St.Button {
     }
 
     /**
-     * A menu item that hands the window to its action, and does nothing at all
-     * when the window is on its way out - the menu can be open while the window
-     * closes itself, or while its application closes it, and the item still
-     * fires. See _windowIsLeaving().
+     * The menu a right click opens: the favourites' application menu, for the
+     * application this window belongs to.
+     *
+     * Same menu, same items, because it is the same question about the same
+     * application: whoever right-clicks the button of a window wants another
+     * window of that application, one of the windows it already has open, one of
+     * the actions its .desktop file offers, a pin to the favourites, or its
+     * quit - and the favourite of that application, a hand's width away on the
+     * same panel, already answers all of those. Two menus that differ for the
+     * same application is the thing a person has to learn twice.
+     *
+     * What is lost is the window's own state (minimize, maximize, keep above,
+     * move to this workspace), and none of it is missed by anybody who has ever
+     * used the shell: those four are on the window itself (its header bar, its
+     * right-click in the title bar, Super+arrows, the workspace switcher), while
+     * "new window" and "quit" have no other route from a taskbar at all. Closing
+     * still has two: the middle click and the menu's Quit.
+     *
+     * A window the shell cannot name - `Shell.AppSystem.get_window_app()` answers
+     * null for a window with no .desktop file behind it - has nothing for that
+     * menu to say, since every item of it acts on the *application*. Those windows
+     * keep this fork's own window menu (`_buildWindowMenu`), because a right click
+     * that answers nothing is worse than a right click with a smaller menu.
+     */
+    _popupMenu() {
+        if (this._windowGone)
+            return;
+
+        // The application of a window is not fixed for the life of the button: a
+        // .desktop file matching its WM_CLASS can appear while the window is open
+        // (WindowsList watches app-state-changed for exactly this and re-reads the
+        // icon from it), so the menu is asked about the application of *now*.
+        const app = this.getApp();
+        const menu = app ? this._buildAppMenu(app) : this._buildWindowMenu();
+
+        // open(), not toggle(): it answers false and changes nothing when the menu
+        // is already open, and a menu registered with the PopupMenuManager closes
+        // itself on a press anywhere outside it, so there is nothing here to toggle
+        // back. Both menus sit in the same manager for this button, so opening one
+        // closes the other by itself.
+        menu.open(Utils.menuParams());
+    }
+
+    /**
+     * The button's application menu, made once and kept for the button's life.
+     *
+     * Kept rather than made per press for two reasons: the shell's AppMenu owns
+     * the connections that keep its "Open Windows" list current (the
+     * application's `windows-changed`, a `notify::title` per item), and a menu
+     * thrown away after use leaves them behind until the garbage collector gets
+     * round to it; and the PopupMenuManager only closes a menu on an outside press
+     * if it was told about it (`addMenu()`, which is idempotent, so the call is
+     * still made once here rather than tracked).
+     */
+    _buildAppMenu(app) {
+        if (!this._appMenu) {
+            this._appMenu = new AzTaskbarAppMenu(this._list._monitor.index, this,
+                this._menuSide(), {
+                    // the favourites' own arguments, so that the two menus really
+                    // are the same menu: the pin item, and the window list shown
+                    // for a single window rather than only from the second one on
+                    favoritesSection: true,
+                    showSingleWindows: true,
+                });
+
+            this._prepareMenu(this._appMenu);
+        }
+
+        // What rebuilds the items and their visibility (can this application open
+        // another window, is it running so it can be quit, is it already pinned).
+        // It answers nothing for the application the menu already has, which costs
+        // nothing: the window list is made again on every open, by
+        // AzTaskbarAppMenu.open().
+        this._appMenu.setApp(app);
+
+        return this._appMenu;
+    }
+
+    /** This fork's window menu, for a window with no application (see _popupMenu). */
+    _buildWindowMenu() {
+        if (!this._windowMenu) {
+            this._windowMenu = new PopupMenu.PopupMenu(this, 0.5, this._menuSide());
+
+            this._menuItem(_('Minimize'), window => window.minimize());
+
+            this._menuItem(_('Maximize'), window => {
+                const flags = Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL;
+                if (window.is_maximized())
+                    window.unmaximize(flags);
+                else
+                    window.maximize(flags);
+            });
+
+            this._menuItem(_('Keep above other windows'), window => {
+                if (window.is_above())
+                    window.unmake_above();
+                else
+                    window.make_above();
+            });
+
+            this._menuItem(_('Move to this workspace'), window => {
+                window.change_workspace(global.workspace_manager.get_active_workspace());
+            });
+
+            this._windowMenu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+            this._menuItem(_('Close'), window => window.delete(global.get_current_time()));
+
+            this._prepareMenu(this._windowMenu);
+        }
+
+        return this._windowMenu;
+    }
+
+    /**
+     * The three things any menu of this button needs before it can be opened.
+     *
+     * The actor has to be put on the stage by somebody: a PopupMenu does not place
+     * itself, and `PopupMenu.open()` lifts it above its siblings with
+     * `this.actor.get_parent().set_child_above_sibling(...)` - a question an actor
+     * with no parent cannot answer. This is why the window menu this fork wrote
+     * never appeared: nothing ever added its actor anywhere, so the right click
+     * ended in a JS error where a menu should have been. The favourites' menu is
+     * put on the stage the same way (appIcon.js), and `destroy()` takes it back off
+     * with the actor.
+     */
+    _prepareMenu(menu) {
+        Main.uiGroup.add_child(menu.actor);
+        this._menuManager.addMenu(menu);
+        menu.connectObject('open-state-changed', (_menu, isOpen) =>
+            this._setMenuHighlight(isOpen), this);
+    }
+
+    /**
+     * A menu item of the window menu: it hands the window to its action, and does
+     * nothing at all when the window is on its way out - the menu can be open while
+     * the window closes itself, or while its application closes it, and the item
+     * still fires. See _windowIsLeaving().
      */
     _menuItem(label, action) {
         const item = new PopupMenu.PopupMenuItem(label);
@@ -690,51 +892,50 @@ class WindowTaskbarButton extends St.Button {
                 return;
             action(this.metaWindow);
         });
-        this._menu.addMenuItem(item);
+        this._windowMenu.addMenuItem(item);
     }
 
-    _popupMenu() {
-        if (this._menu) {
-            this._menu.toggle();
-            return;
-        }
+    /**
+     * The button wears the panel's focused look for as long as one of its menus is
+     * open, which is what the favourites do with `setForcedHighlight()` (appIcon.js).
+     *
+     * `:focus` is the pseudo class the panel theme gives that look to
+     * (`#panel .panel-button:focus`), and it is not the one `syncState()` uses for
+     * the window that has the focus (`:active`), so the menu and the window's own
+     * state never argue over the same class.
+     */
+    _setMenuHighlight(open) {
+        if (open)
+            this.add_style_pseudo_class('focus');
+        else
+            this.remove_style_pseudo_class('focus');
+    }
 
-        this._menu = new PopupMenu.PopupMenu(this, 0.5, this._menuSide());
-
-        this._menuItem(_('Minimize'), window => window.minimize());
-
-        this._menuItem(_('Maximize'), window => {
-            const flags = Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL;
-            if (window.is_maximized())
-                window.unmaximize(flags);
-            else
-                window.maximize(flags);
-        });
-
-        this._menuItem(_('Keep above other windows'), window => {
-            if (window.is_above())
-                window.unmake_above();
-            else
-                window.make_above();
-        });
-
-        this._menuItem(_('Move to this workspace'), window => {
-            window.change_workspace(global.workspace_manager.get_active_workspace());
-        });
-
-        this._menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        this._menuItem(_('Close'), window => window.delete(global.get_current_time()));
-
-        this._menuManager.addMenu(this._menu);
-        this._menu.open(Utils.menuParams());
-        this._menuManager.ignoreRelease?.();
+    /**
+     * Close whatever menu is open. A window can go away - by itself, by its
+     * application, from the keyboard - while a menu that names it is open, and the
+     * shell's AppMenu activates the windows of its list with no guard at all
+     * (`Main.activateWindow(window, time)`), so closing is the whole defence here.
+     */
+    _closeMenus() {
+        this._appMenu?.close();
+        this._windowMenu?.close();
     }
 
     _onDestroy() {
         this._signals.destroy();
-        this._menu?.destroy();
-        this._menu = null;
+
+        // The menu is cut off from the button before it is destroyed: destroying it
+        // closes it, and closing it emits 'open-state-changed' - which this button
+        // answers by touching its own style, on an actor that is in the middle of
+        // being destroyed (HACKING.md, "Tearing down").
+        this._appMenu?.disconnectObject(this);
+        this._windowMenu?.disconnectObject(this);
+        this._appMenu?.destroy();
+        this._windowMenu?.destroy();
+        this._appMenu = null;
+        this._windowMenu = null;
+
         this._draggable?.disconnectObject(this);
         this._draggable = null;
 

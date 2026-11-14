@@ -8,12 +8,12 @@ import St from 'gi://St';
 
 import {AppIconBadges} from './appIconBadges.js';
 import {AppIconIndicator} from './appIconIndicator.js';
+import {AzTaskbarAppMenu} from './appMenu.js';
 import {PanelLocation} from './extension.js';
 import {TaskbarManager} from './taskbarManager.js';
 import * as Utils from './utils.js';
 import {WindowPreviewMenu} from './windowPreview.js';
 
-import {AppMenu} from 'resource:///org/gnome/shell/ui/appMenu.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as DND from 'resource:///org/gnome/shell/ui/dnd.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -1288,52 +1288,6 @@ export class AppIcon extends BaseButton {
             duration: 100,
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => this.multiWindowIndicator.hide(),
-        });
-    }
-}
-
-class AzTaskbarAppMenu extends AppMenu {
-    constructor(monitorIndex, sourceActor, side, params) {
-        super(sourceActor, side, params);
-        this._monitorIndex = monitorIndex;
-    }
-
-    // see Utils.menuParams(): the shape of this argument changed in GNOME 51, so
-    // the caller builds it and this only passes it on.
-    open(params) {
-        this._updateWindowsSection();
-        super.open(params);
-    }
-
-    _updateWindowsSection() {
-        if (this._updateWindowsLaterId) {
-            const laters = global.compositor.get_laters();
-            laters.remove(this._updateWindowsLaterId);
-        }
-        this._updateWindowsLaterId = 0;
-
-        this._windowSection.removeAll();
-        this._openWindowsHeader.hide();
-
-        if (!this._app)
-            return;
-
-        const minWindows = this._showSingleWindows ? 1 : 2;
-        const appWindows = this._app.get_windows();
-        const windows = Utils.getInterestingWindows(TaskbarManager.settings, appWindows, this._monitorIndex);
-        if (windows.length < minWindows)
-            return;
-
-        this._openWindowsHeader.show();
-
-        windows.forEach(window => {
-            const title = window.title || this._app.get_name();
-            const item = this._windowSection.addAction(title, event => {
-                Main.activateWindow(window, event.get_time());
-            });
-            window.connectObject('notify::title', () => {
-                item.label.text = window.title || this._app.get_name();
-            }, item);
         });
     }
 }

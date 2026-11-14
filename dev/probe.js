@@ -263,8 +263,68 @@ async function takeScreenshot(path) {
  * reaches X clients), so the handler is called directly: that exercises the
  * whole click chain, including the menu, without any pointer.
  *
- * The request file holds a JSON body: {title: 'substring', action: 'click'|'activate'|'menu'}
+ * The request file holds a JSON body: {title: 'substring', action:
+ * 'click'|'activate'|'menu', item: 'label of a menu item to press'}
  */
+/** The menu the button has open, or null. */
+function openMenu(button) {
+    return button._appMenu?.isOpen ? button._appMenu
+        : (button._windowMenu?.isOpen ? button._windowMenu : null);
+}
+
+/** Every item of a menu, a section's items taking the section's place. */
+function* eachMenuItem(menu) {
+    for (const item of menu.getMenuItems?.() ?? []) {
+        // a PopupMenuSection (the application's .desktop actions, its window list)
+        // has no label of its own - its items are the ones that matter
+        if (item.getMenuItems)
+            yield* eachMenuItem(item);
+        else
+            yield item;
+    }
+}
+
+/**
+ * What a right click answered with, for the 'menu' action.
+ *
+ * `open` alone does not say that a menu appeared. A PopupMenu's actor is put on
+ * the stage by whoever makes the menu, and the shell's open() lifts it above its
+ * siblings through its parent - so a menu that reports itself open while its
+ * actor belongs to nothing is a menu nobody can see, which is exactly the bug
+ * this reports against (HACKING.md, "The right-click menu").
+ */
+function menuReport(button) {
+    const menu = openMenu(button);
+
+    if (!menu)
+        return {open: false};
+
+    return {
+        open: true,
+        menu: menu.constructor.name,
+        stage: menu.actor.get_stage() !== null,
+        parent: menu.actor.get_parent()?.constructor?.name ?? null,
+        items: [...eachMenuItem(menu)]
+            .filter(item => item.visible)
+            .map(item => item.label?.text ?? '---'),
+    };
+}
+
+/** Press the item with this label, if the open menu has one. */
+function pressMenuItem(button, label) {
+    const menu = openMenu(button);
+    const item = menu && [...eachMenuItem(menu)]
+        .find(i => i.visible && i.label?.text === label);
+
+    if (!item)
+        return false;
+
+    // what a click on an item is: the item's own 'activate', which the menu
+    // answers by closing itself
+    item.activate();
+    return true;
+}
+
 async function clickButton(ext) {
     const [, raw] = GLib.file_get_contents(CLICK_REQUEST);
     const request = JSON.parse(new TextDecoder().decode(raw));
@@ -282,6 +342,7 @@ async function clickButton(ext) {
         throw new Error(`no window button matching ${JSON.stringify(request.title)}`);
 
     const metaWindow = found ? found[0] : button.metaWindow;
+    let menuResult = null;
     const before = {
         title: metaWindow.get_title(),
         focused: metaWindow.has_focus(),
@@ -295,7 +356,10 @@ async function clickButton(ext) {
         break;
     case 'menu':
         button._popupMenu();
-        Main.panel.menuManager.closeMenu?.();
+        // reported before the menu is put away again - and put away by the button
+        // itself, since an open menu holds a modal grab over the session
+        menuResult = menuReport(button);
+        button._closeMenus();
         break;
     default:
         button._onClick();
@@ -319,6 +383,8 @@ async function clickButton(ext) {
             stable: metaWindow.get_stable_sequence(),
         },
         focusedWindow: global.display.focus_window?.get_title?.() ?? null,
+        // only for the 'menu' action: what the right click opened
+        menu: menuResult,
     };
     GLib.file_set_contents(`${BUILD}/click.json`, `${JSON.stringify(result, null, 4)}\n`);
     log(`windowtaskbar-dev: clicked '${before.title}' -> focused=${result.after.focused}`);
